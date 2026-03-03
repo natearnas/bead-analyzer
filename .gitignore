@@ -35,5 +35,6 @@ Thumbs.db
 
 .vscode/
 .idea/
+.claude/
 test_output_*/
 python
