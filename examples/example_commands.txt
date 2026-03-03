@@ -1,0 +1,75 @@
+# Bead Analyzer - Example Commands
+
+## Getting help
+bead-analyzer --help
+
+## Manual mode (interactive: right-click beads, press Escape when done)
+bead-analyzer beads.tif --mode manual --scale_xy 0.26 --scale_z 2 --fit_gaussian --subtract_background
+
+## Manual with experimental metadata (NA, fluorophore written to summary)
+bead-analyzer beads.tif --mode manual --scale_xy 0.26 --scale_z 2 --na 1.4 --fluorophore "FITC" --fit_gaussian
+
+## Manual with display tuning (gamma, vmin/vmax percentiles)
+bead-analyzer beads.tif --mode manual --scale_xy 0.26 --scale_z 2 --gamma 0.65 --vmin_pct 1.5 --vmax_pct 1.1 --fit_gaussian
+
+## Manual: load bead coordinates from file (skip interactive click)
+bead-analyzer beads.tif --mode manual --scale_xy 0.26 --scale_z 2 --points_file coords.csv --fit_gaussian
+
+## StarDist (automatic detection, pretrained model)
+bead-analyzer beads.tif --mode stardist --scale_xy 0.26 --scale_z 2 --fit_gaussian --max_z_fwhm 15
+
+## StarDist: override detection with pre-defined points
+bead-analyzer beads.tif --mode stardist --scale_xy 0.26 --scale_z 2 --points_file coords.csv --fit_gaussian
+
+## Cellpose (requires trained model)
+bead-analyzer beads.tif --mode cellpose --scale_xy 0.26 --scale_z 2 \
+  --cellpose_model path/to/cellpose_bead_model --fit_gaussian \
+  --z_smooth 0.75 --reject_outliers 3 --num_beads_avg 40
+
+## Cellpose with tuned detection params for small beads
+bead-analyzer beads.tif --mode cellpose --scale_xy 0.51 --scale_z 1.0 \
+  --cellpose_model path/to/model --fit_gaussian \
+  --cellpose_min_size 3 --cellpose_flow_threshold 0.4 --cellpose_diameter 8
+
+## Cellpose with Z range and outlier rejection
+bead-analyzer beads.tif --mode cellpose --scale_xy 0.26 --scale_z 2 --cellpose_model path/to/model --fit_gaussian --z_range 10 259 --z_analysis_margin 10 --reject_outliers 3 --detrend
+
+## Output to a specific directory
+bead-analyzer beads.tif --mode manual --scale_xy 0.26 --scale_z 2 --output_dir ./results --fit_gaussian
+
+## Suppress plots (for batch/headless runs)
+bead-analyzer beads.tif --mode stardist --scale_xy 0.26 --scale_z 2 --fit_gaussian --no_plots
+
+## Using python -m (if bead-analyzer not on PATH)
+py -m bead_analyzer.cli beads.tif --mode manual --scale_xy 0.26 --scale_z 2 --fit_gaussian
+
+## 3D Gaussian fitting (more accurate PSF measurement)
+bead-analyzer beads.tif --mode stardist --scale_xy 0.26 --scale_z 2 --fit_gaussian --fit_3d
+
+## Automatic QA rejection (remove low SNR/symmetry beads)
+bead-analyzer beads.tif --mode stardist --scale_xy 0.26 --scale_z 2 --qa_auto_reject --qa_min_snr 5 --qa_min_symmetry 0.7
+
+## Save per-bead diagnostic plots for manual QA
+bead-analyzer beads.tif --mode manual --scale_xy 0.26 --scale_z 2 --fit_gaussian --fit_3d --save_diagnostics
+
+## Full pipeline: 3D fit, QA rejection, and diagnostics
+bead-analyzer beads.tif --mode stardist --scale_xy 0.26 --scale_z 2 \
+  --fit_gaussian --fit_3d --qa_auto_reject --qa_min_snr 5 \
+  --save_diagnostics --output_dir ./analysis
+
+## StarDist with classical blob fallback
+bead-analyzer beads.tif --mode stardist --scale_xy 0.51 --scale_z 1.0 \
+  --use_blob_fallback --blob_sigma 1.2 --blob_threshold_rel 0.2
+
+## Cellpose native 3D with anisotropy (z/xy = 1.0/0.51 = 1.96)
+bead-analyzer beads.tif --mode cellpose --scale_xy 0.51 --scale_z 1.0 \
+  --cellpose_model path/to/model --cellpose_do_3d --anisotropy 1.96
+
+## Robust fitting with local background (light-sheet with spatially varying haze)
+bead-analyzer beads.tif --mode stardist --scale_xy 0.51 --scale_z 1.0 \
+  --fit_gaussian --robust_fit --local_background
+
+## Full hardened pipeline: 3D robust fit, local BG, QA rejection, diagnostics
+bead-analyzer beads.tif --mode stardist --scale_xy 0.51 --scale_z 1.0 \
+  --fit_gaussian --fit_3d --robust_fit --local_background \
+  --qa_auto_reject --qa_min_snr 5 --save_diagnostics --output_dir ./analysis
