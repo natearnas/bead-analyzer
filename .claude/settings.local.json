@@ -1,0 +1,17 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(py -m pytest -q)",
+      "Bash(python -m pytest tests/ -v)",
+      "Bash(where python3)",
+      "Bash(where python)",
+      "Bash(ls /c/Users/natha/AppData/Local/Programs/Python/*/python.exe)",
+      "WebFetch(domain:cellpose.readthedocs.io)",
+      "WebFetch(domain:github.com)",
+      "Bash(tasklist //FI \"IMAGENAME eq python.exe\" //FO TABLE)",
+      "Bash(tasklist //FI \"PID eq 50680\" //FO TABLE)",
+      "Bash(wmic OS get TotalVisibleMemorySize,FreePhysicalMemory /format:list)",
+      "Bash(powershell -c \"Get-CimInstance Win32_OperatingSystem | Select-Object TotalVisibleMemorySize,FreePhysicalMemory | Format-List\")"
+    ]
+  }
+}

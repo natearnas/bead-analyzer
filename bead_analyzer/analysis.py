@@ -1,3 +1,13 @@
+# -----------------------------------------------------------------------------
+# Bead Analyzer
+#
+# (c) 2026 Arnas Technologies, LLC
+# Developed by Nathan O'Connor, PhD, MS
+#
+# Licensed under the MIT License.
+# For consulting or custom development: nathan@arnastech.com
+# -----------------------------------------------------------------------------
+
 """
 Unified FWHM analysis pipeline for manual, StarDist, and Cellpose modes.
 """

@@ -1,3 +1,13 @@
+# -----------------------------------------------------------------------------
+# Bead Analyzer
+#
+# (c) 2026 Arnas Technologies, LLC
+# Developed by Nathan O'Connor, PhD, MS
+#
+# Licensed under the MIT License.
+# For consulting or custom development: nathan@arnastech.com
+# -----------------------------------------------------------------------------
+
 #!/usr/bin/env python3
 """Train a custom Cellpose model on bead images. Expects *_raw.tif and *_masks.tif pairs."""
 
