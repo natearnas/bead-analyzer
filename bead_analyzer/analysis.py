@@ -9,7 +9,7 @@
 # -----------------------------------------------------------------------------
 
 """
-Unified FWHM analysis pipeline for manual, StarDist, and Cellpose modes.
+Unified FWHM analysis pipeline for manual, blob, trackpy, StarDist, and Cellpose modes.
 """
 
 import numpy as np
@@ -224,6 +224,20 @@ def _save_bead_diagnostic(bead_id, volume, z_profile, x_profile, y_profile,
         fwhm_x = fwhm_result['fwhm_x_prom_um']
         half_max = (np.max(x_profile) + np.min(x_profile)) / 2
         ax_x.axhline(half_max, color='r', ls='--', alpha=0.7, label=f'FWHM={fwhm_x:.2f}µm')
+    if fit_gaussian and fwhm_result and 'fwhm_x_gauss_um' in fwhm_result and fwhm_result['fwhm_x_gauss_um']:
+        try:
+            from scipy.optimize import curve_fit
+            pk = np.argmax(x_profile)
+            hw = min(10, len(x_profile) // 2)
+            xs = np.arange(max(0, pk - hw), min(len(x_profile), pk + hw + 1))
+            ys = x_profile[xs]
+            p0 = [ys.max() - ys.min(), pk, hw / 2, ys.min()]
+            popt, _ = curve_fit(gaussian_func, xs, ys, p0=p0, maxfev=2000)
+            fit_x = np.linspace(xs[0], xs[-1], 100)
+            fit_y = gaussian_func(fit_x, *popt)
+            ax_x.plot(fit_x * scale_xy, fit_y, 'r-', lw=1, alpha=0.8, label='Gauss fit')
+        except Exception:
+            pass
     ax_x.set_xlabel('X (µm)')
     ax_x.set_ylabel('Intensity')
     ax_x.set_title('X Profile')
@@ -235,6 +249,20 @@ def _save_bead_diagnostic(bead_id, volume, z_profile, x_profile, y_profile,
         fwhm_y = fwhm_result['fwhm_y_prom_um']
         half_max = (np.max(y_profile) + np.min(y_profile)) / 2
         ax_y.axhline(half_max, color='r', ls='--', alpha=0.7, label=f'FWHM={fwhm_y:.2f}µm')
+    if fit_gaussian and fwhm_result and 'fwhm_y_gauss_um' in fwhm_result and fwhm_result['fwhm_y_gauss_um']:
+        try:
+            from scipy.optimize import curve_fit
+            pk = np.argmax(y_profile)
+            hw = min(10, len(y_profile) // 2)
+            xs = np.arange(max(0, pk - hw), min(len(y_profile), pk + hw + 1))
+            ys = y_profile[xs]
+            p0 = [ys.max() - ys.min(), pk, hw / 2, ys.min()]
+            popt, _ = curve_fit(gaussian_func, xs, ys, p0=p0, maxfev=2000)
+            fit_x = np.linspace(xs[0], xs[-1], 100)
+            fit_y = gaussian_func(fit_x, *popt)
+            ax_y.plot(fit_x * scale_xy, fit_y, 'r-', lw=1, alpha=0.8, label='Gauss fit')
+        except Exception:
+            pass
     ax_y.set_xlabel('Y (µm)')
     ax_y.set_ylabel('Intensity')
     ax_y.set_title('Y Profile')
@@ -494,6 +522,7 @@ def run_stardist(stack, scale_xy, scale_z, box_size=7, line_length=5.0,
                  stardist_n_tiles=None,
                  use_trackpy=False, trackpy_diameter=5, trackpy_minmass=5000,
                  trackpy_separation=None,
+                 detector_backend='stardist',
                  output_dir=None, local_background=False, robust_fit=False,
                  **kwargs):
     """
@@ -512,24 +541,46 @@ def run_stardist(stack, scale_xy, scale_z, box_size=7, line_length=5.0,
         if rd.rect_coords:
             stack = _subtract_background(stack, rd.rect_coords)
             mip = np.max(stack, axis=0)
-    pts = detectors.get_points_stardist(
-        mip,
-        points_file=points_file,
-        model_name=stardist_model,
-        prob_thresh=stardist_prob_thresh,
-        nms_thresh=stardist_nms_thresh,
-        use_blob_fallback=use_blob_fallback,
-        blob_sigma=blob_sigma,
-        blob_threshold_rel=blob_threshold_rel,
-        blob_min_distance=blob_min_distance,
-        n_tiles=stardist_n_tiles,
-        use_trackpy=use_trackpy,
-        trackpy_diameter=trackpy_diameter,
-        trackpy_minmass=trackpy_minmass,
-        trackpy_separation=trackpy_separation,
-    )
+    if detector_backend == 'blob':
+        pts = detectors.get_points_blob(
+            mip,
+            points_file=points_file,
+            sigma=blob_sigma,
+            threshold_rel=blob_threshold_rel,
+            min_distance_px=blob_min_distance,
+        )
+    elif detector_backend == 'trackpy':
+        pts = detectors.get_points_trackpy(
+            mip,
+            points_file=points_file,
+            diameter=trackpy_diameter,
+            minmass=trackpy_minmass,
+            separation=trackpy_separation,
+        )
+    else:
+        pts = detectors.get_points_stardist(
+            mip,
+            points_file=points_file,
+            model_name=stardist_model,
+            prob_thresh=stardist_prob_thresh,
+            nms_thresh=stardist_nms_thresh,
+            use_blob_fallback=use_blob_fallback,
+            blob_sigma=blob_sigma,
+            blob_threshold_rel=blob_threshold_rel,
+            blob_min_distance=blob_min_distance,
+            n_tiles=stardist_n_tiles,
+            use_trackpy=use_trackpy,
+            trackpy_diameter=trackpy_diameter,
+            trackpy_minmass=trackpy_minmass,
+            trackpy_separation=trackpy_separation,
+        )
     if pts and review_detection:
-        if not detectors.review_detection_points(mip, pts, title="StarDist Detection Review"):
+        title = {
+            'stardist': "StarDist Detection Review",
+            'blob': "Blob Detection Review",
+            'trackpy': "Trackpy Detection Review",
+        }.get(detector_backend, "Detection Review")
+        if not detectors.review_detection_points(mip, pts, title=title):
             return [], [], mip, [], []
     if not pts:
         return [], [], mip, [], []
@@ -650,6 +701,23 @@ def run_stardist(stack, scale_xy, scale_z, box_size=7, line_length=5.0,
                 )
 
     return results, bead_volumes, mip, profiles, rejected
+
+
+def run_blob(*args, **kwargs):
+    """Blob detector mode: classical Gaussian smooth + local maxima."""
+    kwargs['detector_backend'] = 'blob'
+    # Blob mode should not silently invoke StarDist fallback logic.
+    kwargs['use_blob_fallback'] = False
+    kwargs['use_trackpy'] = False
+    return run_stardist(*args, **kwargs)
+
+
+def run_trackpy(*args, **kwargs):
+    """trackpy detector mode: bandpass + feature centroid detection."""
+    kwargs['detector_backend'] = 'trackpy'
+    kwargs['use_blob_fallback'] = False
+    kwargs['use_trackpy'] = True
+    return run_stardist(*args, **kwargs)
 
 
 def run_cellpose(stack, scale_xy, scale_z, model_path, box_size=15, line_length=5.0,
@@ -876,8 +944,9 @@ def run_cellpose(stack, scale_xy, scale_z, model_path, box_size=15, line_length=
 def write_outputs(results, bead_volumes, mip, file_path, mode, scale_xy, scale_z,
                   upsample_factor=4, no_plots=False, num_beads_avg=20,
                   bead_log=None, na=None, fluorophore=None, gamma=1.0,
-                  qa_min_snr=3.0, qa_min_symmetry=0.6, rejected=None):
-    """Write CSV, TXT summary, average bead, and (for Cellpose) heatmap and bead log."""
+                  qa_min_snr=3.0, qa_min_symmetry=0.6, rejected=None,
+                  profiles=None):
+    """Write CSV, TXT summary, average bead, heatmap, detection overview, and summary figure."""
     file_path = Path(file_path)
     extra_meta = []
     if na is not None:
@@ -897,22 +966,31 @@ def write_outputs(results, bead_volumes, mip, file_path, mode, scale_xy, scale_z
         rej_df.to_csv(rej_path, index=False, float_format='%.4f')
         print(f"Rejected beads saved to: {rej_path}")
 
+    if not no_plots and mip is not None:
+        _save_detection_overview(results, rejected, mip, file_path, gamma=gamma)
+
     if not results:
         print("No beads passed analysis. No reports written.")
         return
 
     df = pd.DataFrame(results)
-    if mode == 'cellpose' and 'district' in df.columns:
+
+    # Compute district coordinates for all modes (for heatmap)
+    if 'district' in df.columns:
         df['district_row'] = df['district'].apply(lambda x: x[0])
         df['district_col'] = df['district'].apply(lambda x: x[1])
         df = df.drop(columns=['district'], errors='ignore')
-        csv_path = file_path.with_name(f"{file_path.stem}_FWHM_districts.csv")
-    else:
-        csv_path = file_path.with_name(f"{file_path.stem}_FWHM_data.csv")
+    elif 'x_coord' in df.columns and 'y_coord' in df.columns and mip is not None:
+        img_h, img_w = mip.shape[:2]
+        h3, w3 = img_h / 3.0, img_w / 3.0
+        df['district_row'] = (df['y_coord'] // h3).astype(int).clip(0, 2)
+        df['district_col'] = (df['x_coord'] // w3).astype(int).clip(0, 2)
+
+    csv_path = file_path.with_name(f"{file_path.stem}_FWHM_data.csv")
     df.to_csv(csv_path, index=False, float_format='%.4f')
     print(f"CSV saved to: {csv_path}")
 
-    lines = ["=" * 60, "--- 3D FWHM Summary Report ---", "=" * 60,
+    lines = ["=" * 60, "--- Bead Analyzer Summary Report ---", "=" * 60,
              f"Source: {file_path.name}", f"Total beads: {len(df)}"]
     if rejected:
         lines.append(f"QA rejected: {len(rejected)}")
@@ -953,29 +1031,42 @@ def write_outputs(results, bead_volumes, mip, file_path, mode, scale_xy, scale_z
         f.write("\n".join(lines))
     print(f"Summary saved to: {txt_path}")
 
-    valid_vols = [v for v in bead_volumes if v.size > 0]
-    if valid_vols and mode == 'cellpose' and 'fwhm_z_prom' in df.columns:
-        median_fwhm = df['fwhm_z_prom'].median()
-        df = df.copy()
-        df['_dist'] = (df['fwhm_z_prom'] - median_fwhm).abs()
-        n_sel = min(num_beads_avg, len(df))
-        sel = df.nsmallest(n_sel, '_dist')
-        sel_ids = sel['id'].tolist()
+    # --- Average bead: unified selection for all modes ---
+    valid_vols = [v for v in bead_volumes if v is not None and getattr(v, "size", 0) > 0]
+    fwhm_col = next((k for k in ['fwhm_z_prom_um', 'fwhm_z_prom'] if k in df.columns), None)
+    if valid_vols and fwhm_col and df[fwhm_col].notna().any():
+        if num_beads_avg > 0 and num_beads_avg < len(df):
+            median_fwhm = df[fwhm_col].median()
+            df_sel = df.copy()
+            df_sel['_dist'] = (df_sel[fwhm_col] - median_fwhm).abs()
+            sel = df_sel.nsmallest(num_beads_avg, '_dist')
+            sel_ids = sel['id'].tolist()
+        else:
+            sel_ids = df['id'].tolist()
         volume_by_id = {
             int(r.get('id')): v
             for r, v in zip(results, bead_volumes)
             if v is not None and getattr(v, "size", 0) > 0
         }
         sel_vols = [volume_by_id[sid] for sid in sel_ids if sid in volume_by_id]
-        valid_vols = sel_vols
+        if sel_vols:
+            valid_vols = sel_vols
+    avg_vol = None
     if valid_vols and not no_plots:
-        _save_average_bead(valid_vols, file_path, scale_xy, scale_z, upsample_factor)
-    if mode == 'cellpose' and 'fwhm_z_gauss' in df.columns and not no_plots:
-        _save_heatmap(results, mip, file_path, df, gamma=gamma)
+        avg_vol = _save_average_bead(valid_vols, file_path, scale_xy, scale_z, upsample_factor)
+
+    # --- Heatmap: all modes ---
+    fwhm_heatmap_col = next((k for k in ['fwhm_z_gauss_um', 'fwhm_z_gauss'] if k in df.columns), None)
+    if fwhm_heatmap_col and 'district_row' in df.columns and not no_plots:
+        _save_heatmap(results, mip, file_path, df, gamma=gamma, fwhm_col=fwhm_heatmap_col)
+
+    # --- Summary figure ---
+    if avg_vol is not None and not no_plots and profiles:
+        _save_summary_figure(avg_vol, profiles, file_path, scale_xy, scale_z, upsample_factor)
 
 
 def _save_average_bead(volumes, file_path, scale_xy, scale_z, upsample_factor=4):
-    """Save upsampled average bead stack and plot."""
+    """Save upsampled average bead stack and plot. Returns the average volume."""
     centered = []
     for vol in volumes:
         up = zoom(vol, upsample_factor, order=3)
@@ -1001,14 +1092,17 @@ def _save_average_bead(volumes, file_path, scale_xy, scale_z, upsample_factor=4)
     plt.savefig(out_png, dpi=300, bbox_inches='tight')
     plt.close()
     print(f"Plot saved to: {out_png}")
+    return avg
 
 
-def _save_heatmap(results, mip, file_path, df, gamma=1.0):
-    """Save district heatmap (Cellpose)."""
+def _save_heatmap(results, mip, file_path, df, gamma=1.0, fwhm_col='fwhm_z_gauss'):
+    """Save district heatmap for any mode."""
     if 'district_row' not in df.columns:
         return
+    if fwhm_col not in df.columns or not df[fwhm_col].notna().any():
+        return
     from matplotlib.colors import PowerNorm
-    stats = df.groupby(['district_row', 'district_col'])['fwhm_z_gauss'].agg(['mean', 'std', 'count']).reset_index()
+    stats = df.groupby(['district_row', 'district_col'])[fwhm_col].agg(['mean', 'std', 'count']).reset_index()
     heatmap = np.full((3, 3), np.nan)
     for _, row in stats.iterrows():
         heatmap[int(row['district_row']), int(row['district_col'])] = row['mean']
@@ -1028,3 +1122,150 @@ def _save_heatmap(results, mip, file_path, df, gamma=1.0):
     plt.savefig(out_path, dpi=300, bbox_inches='tight')
     plt.close()
     print(f"Heatmap saved to: {out_path}")
+
+
+def _save_detection_overview(results, rejected, mip, file_path, gamma=1.0):
+    """Save MIP with detected bead locations marked: green=accepted, red=rejected."""
+    from matplotlib.colors import PowerNorm
+    fig, ax = plt.subplots(figsize=(12, 10))
+    norm = PowerNorm(gamma=gamma) if gamma != 1 else None
+    ax.imshow(mip, cmap='gray', norm=norm)
+    if results:
+        xs = [r['x_coord'] for r in results]
+        ys = [r['y_coord'] for r in results]
+        ax.scatter(xs, ys, s=60, facecolors='none', edgecolors='lime', linewidths=1.5, label=f'Accepted ({len(results)})')
+        for r in results:
+            ax.annotate(str(r['id']), (r['x_coord'], r['y_coord']),
+                        color='lime', fontsize=6, xytext=(4, 4), textcoords='offset points')
+    if rejected:
+        rxs = [r['x_coord'] for r in rejected if 'x_coord' in r]
+        rys = [r['y_coord'] for r in rejected if 'y_coord' in r]
+        if rxs:
+            ax.scatter(rxs, rys, s=60, facecolors='none', edgecolors='red', linewidths=1.5, label=f'Rejected ({len(rxs)})')
+            for r in rejected:
+                if 'x_coord' in r:
+                    ax.annotate(str(r.get('id', '')), (r['x_coord'], r['y_coord']),
+                                color='red', fontsize=6, xytext=(4, 4), textcoords='offset points')
+    ax.legend(loc='upper right', fontsize=10)
+    ax.set_title('Detection Overview')
+    ax.set_xlabel('X (px)')
+    ax.set_ylabel('Y (px)')
+    out_path = file_path.with_name(f"{file_path.stem}_detection_overview.png")
+    plt.savefig(out_path, dpi=300, bbox_inches='tight')
+    plt.close()
+    print(f"Detection overview saved to: {out_path}")
+
+
+def _add_scalebar(ax, scale_um_per_px, img_size_px, orientation='horizontal', color='white'):
+    """Draw a scale bar on an axes. Picks a round bar length in µm."""
+    fov_um = img_size_px * scale_um_per_px
+    target = fov_um * 0.2
+    candidates = [0.1, 0.2, 0.5, 1, 2, 5, 10, 20, 50, 100, 200, 500]
+    bar_um = min(candidates, key=lambda c: abs(c - target))
+    bar_px = bar_um / scale_um_per_px
+    margin = img_size_px * 0.05
+    if orientation == 'horizontal':
+        x0 = margin
+        y0 = img_size_px - margin
+        ax.plot([x0, x0 + bar_px], [y0, y0], color=color, lw=3)
+        ax.text(x0 + bar_px / 2, y0 - margin * 0.5, f'{bar_um} µm',
+                color=color, ha='center', va='bottom', fontsize=8, fontweight='bold')
+    else:
+        x0 = margin
+        y0 = img_size_px - margin
+        ax.plot([x0, x0], [y0, y0 - bar_px], color=color, lw=3)
+        ax.text(x0 + margin * 0.5, y0 - bar_px / 2, f'{bar_um} µm',
+                color=color, ha='left', va='center', fontsize=8, fontweight='bold', rotation=90)
+
+
+def _save_summary_figure(avg_vol, profiles, file_path, scale_xy, scale_z, upsample_factor=4):
+    """Publication-quality summary: avg bead projections with scale bars + mean profiles with fits."""
+    if avg_vol is None or not profiles:
+        return
+
+    new_xy = scale_xy / upsample_factor
+    new_z = scale_z / upsample_factor
+    nz, ny, nx = avg_vol.shape
+    z_m, y_m, x_m = nz // 2, ny // 2, nx // 2
+
+    fig = plt.figure(figsize=(16, 10))
+    gs = fig.add_gridspec(2, 3, hspace=0.3, wspace=0.3)
+
+    # Top row: projections with scale bars
+    ax_xy = fig.add_subplot(gs[0, 0])
+    ax_xy.imshow(avg_vol[z_m, :, :], cmap='inferno', aspect=1)
+    ax_xy.set_title('Average Bead: XY')
+    ax_xy.axis('off')
+    _add_scalebar(ax_xy, new_xy, nx)
+
+    ax_xz = fig.add_subplot(gs[0, 1])
+    ax_xz.imshow(avg_vol[:, y_m, :], cmap='inferno', aspect=new_z / new_xy)
+    ax_xz.set_title('Average Bead: XZ')
+    ax_xz.axis('off')
+    _add_scalebar(ax_xz, new_xy, nx)
+
+    ax_yz = fig.add_subplot(gs[0, 2])
+    ax_yz.imshow(avg_vol[:, :, x_m], cmap='inferno', aspect=new_z / new_xy)
+    ax_yz.set_title('Average Bead: YZ')
+    ax_yz.axis('off')
+    _add_scalebar(ax_yz, new_xy, ny)
+
+    # Bottom row: mean profiles with std shading and Gaussian fits
+    profile_data = {'Z': [], 'X': [], 'Y': []}
+    for p in profiles:
+        if p.get('z_profile') is not None:
+            profile_data['Z'].append(p['z_profile'])
+        if p.get('x_profile') is not None:
+            profile_data['X'].append(p['x_profile'])
+        if p.get('y_profile') is not None:
+            profile_data['Y'].append(p['y_profile'])
+
+    axis_configs = [
+        ('Z', scale_z, gs[1, 0], 'b'),
+        ('X', scale_xy, gs[1, 1], 'g'),
+        ('Y', scale_xy, gs[1, 2], 'm'),
+    ]
+
+    for axis_name, scale, gs_pos, color in axis_configs:
+        ax = fig.add_subplot(gs_pos)
+        profs = profile_data[axis_name]
+        if not profs:
+            ax.set_title(f'{axis_name} Profile (no data)')
+            continue
+        max_len = max(len(p) for p in profs)
+        padded = np.full((len(profs), max_len), np.nan)
+        for i, p in enumerate(profs):
+            offset = (max_len - len(p)) // 2
+            padded[i, offset:offset + len(p)] = p
+        mean_prof = np.nanmean(padded, axis=0)
+        std_prof = np.nanstd(padded, axis=0)
+        x_um = np.arange(max_len) * scale
+
+        ax.fill_between(x_um, mean_prof - std_prof, mean_prof + std_prof, alpha=0.25, color=color)
+        ax.plot(x_um, mean_prof, color=color, lw=2, label=f'Mean (n={len(profs)})')
+
+        valid = ~np.isnan(mean_prof)
+        if np.sum(valid) >= 4:
+            try:
+                xs_fit = np.where(valid)[0]
+                ys_fit = mean_prof[valid]
+                pk = np.argmax(ys_fit)
+                p0 = [ys_fit.max() - ys_fit.min(), xs_fit[pk], len(xs_fit) / 4, ys_fit.min()]
+                from scipy.optimize import curve_fit
+                popt, _ = curve_fit(gaussian_func, xs_fit, ys_fit, p0=p0, maxfev=3000)
+                fwhm_val = 2 * np.sqrt(2 * np.log(2)) * abs(popt[2]) * scale
+                fit_xs = np.linspace(xs_fit[0], xs_fit[-1], 200)
+                ax.plot(fit_xs * scale, gaussian_func(fit_xs, *popt), 'r-', lw=1.5, alpha=0.8,
+                        label=f'Fit FWHM={fwhm_val:.2f} µm')
+            except Exception:
+                pass
+
+        ax.set_xlabel(f'{axis_name} (µm)')
+        ax.set_ylabel('Intensity (a.u.)')
+        ax.set_title(f'{axis_name} Profile')
+        ax.legend(loc='upper right', fontsize=8)
+
+    out_path = file_path.with_name(f"{file_path.stem}_summary_figure.png")
+    plt.savefig(out_path, dpi=300, bbox_inches='tight')
+    plt.close()
+    print(f"Summary figure saved to: {out_path}")

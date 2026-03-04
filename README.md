@@ -1,6 +1,6 @@
 # Bead Analyzer
 
-Analyze images of microspheres for characterizing light microscopy systems. Measures FWHM, PSF shape, SNR, and symmetry from fluorescent beads in 3D image stacks. Supports manual bead selection, StarDist automatic detection, and Cellpose with custom-trained models.
+Analyze images of microspheres for characterizing light microscopy systems. Measures FWHM, PSF shape, SNR, and symmetry from fluorescent beads in 3D image stacks. Supports manual bead selection, classical blob/trackpy detection, StarDist automatic detection, and Cellpose with custom-trained models.
 
 ## Quick Start
 
@@ -13,25 +13,28 @@ pip install -e .
 # GUI
 bead-analyzer-gui
 
-# CLI (manual mode)
-bead-analyzer image.tif --mode manual --scale_xy 0.26 --scale_z 2.0
+# CLI (default mode = blob)
+bead-analyzer image.tif --scale_xy 0.26 --scale_z 2.0
 ```
 
 ## CLI
 
-The command-line interface supports all three detection modes. Required arguments: input file, `--scale_xy`, and `--scale_z`.
+The command-line interface supports five detection modes. Required arguments: input file, `--scale_xy`, and `--scale_z`.
 
 ```bash
 # Show all options
 bead-analyzer --help
 
-# Manual: interactive bead selection (opens matplotlib windows)
-bead-analyzer beads.tif --mode manual --scale_xy 0.26 --scale_z 2 --fit_gaussian
+# Blob: classical detector (recommended default for most bead slides)
+bead-analyzer beads.tif --mode blob --scale_xy 0.26 --scale_z 2 --fit_gaussian
 
-# StarDist: automatic detection (no training needed)
+# Trackpy: robust under intensity gradients / low-NA backgrounds
+bead-analyzer beads.tif --mode trackpy --scale_xy 0.26 --scale_z 2 --fit_gaussian
+
+# StarDist: neural network (best when beads are ~15+ px diameter)
 bead-analyzer beads.tif --mode stardist --scale_xy 0.26 --scale_z 2 --fit_gaussian --max_z_fwhm 15
 
-# Cellpose: custom model (requires training first)
+# Cellpose: custom model (best when beads are ~15+ px diameter)
 bead-analyzer beads.tif --mode cellpose --scale_xy 0.26 --scale_z 2 --cellpose_model path/to/model --fit_gaussian
 ```
 
@@ -42,25 +45,31 @@ Add `--na 1.4 --fluorophore "FITC"` to record experimental metadata in the summa
 | Mode | Description | Dependencies |
 |------|-------------|--------------|
 | **Manual** | Right-click on beads in MIP | Base only |
-| **StarDist** | Automatic detection (pretrained) | stardist, csbdeep |
+| **Blob** | Classical Gaussian smooth + local maxima | Base only |
+| **Trackpy** | Bandpass filter + sub-pixel centroid detection | trackpy |
+| **StarDist** | Automatic detection (pretrained neural network) | stardist, csbdeep |
 | **Cellpose** | Custom model, requires training | cellpose, torch |
 
 ### Detection Strategy Notes
 
-- **StarDist path**: default is `2D_versatile_fluo` on the MIP, with optional classical blob fallback for sparse bead fields.
-- **Cellpose path**: default is 2D MIP inference; optional native 3D inference is available with anisotropy support.
-- **Best practice**: for anisotropic z-stacks, use Cellpose 3D with `--anisotropy (z_spacing/xy_spacing)`.
+- **Blob path**: recommended default for most bead slides, especially tiny beads.
+- **Trackpy path**: preferred when backgrounds have gradients or low-NA blur.
+- **StarDist/Cellpose path**: best when beads span roughly 15+ pixels in diameter.
+- **Cellpose 3D**: for anisotropic z-stacks, use `--cellpose_do_3d --anisotropy (z_spacing/xy_spacing)`.
 
 ## Outputs
 
-- `*_FWHM_data.csv` or `*_FWHM_districts.csv` – per-bead FWHM
-- `*_FWHM_summary.txt` – mean ± std
+- `*_FWHM_data.csv` – per-bead FWHM measurements (all modes)
+- `*_FWHM_summary.txt` – mean ± std report
 - `*_bead_quality.csv` – QA metrics (SNR, symmetry)
-- `*_average_bead_stack.tif` – upsampled average bead
-- `*_average_bead_plot.png` – XY/XZ/YZ projections
+- `*_average_bead_stack.tif` – upsampled average bead (all modes)
+- `*_average_bead_plot.png` – XY/XZ/YZ projections of average bead
+- `*_summary_figure.png` – publication-quality figure: average bead projections with scale bars + mean profiles with Gaussian fit overlay
+- `*_detection_overview.png` – MIP with bead locations (green=accepted, red=rejected)
+- `*_FWHM_heatmap.png` – 3x3 spatial FWHM variation across the field (all modes)
 - `*_rejected_beads.csv` – beads filtered by QA (if `--qa_auto_reject`)
-- `bead_diagnostics/` – per-bead diagnostic plots (if `--save_diagnostics`)
-- (Cellpose) `*_every_bead_log.csv`, `*_FWHM_heatmap.png`
+- `bead_diagnostics/` – per-bead diagnostic plots with fit overlays on all axes (if `--save_diagnostics`)
+- (Cellpose) `*_every_bead_log.csv`
 
 ## How The Measurement Works
 
@@ -69,17 +78,18 @@ Understanding the pipeline helps you choose the right options.
 ### 1. Bead Detection
 
 A 2D maximum-intensity projection (MIP) is computed from the Z-stack. Beads
-are located on the MIP by one of three methods:
+are located on the MIP by one of five methods:
 
 | Method | How it works | When to use |
 |--------|-------------|-------------|
 | **Manual** | You right-click on beads | Few beads, or unusual samples |
-| **StarDist** | Pretrained neural network (`2D_versatile_fluo`) finds star-convex objects | Most bead slides; no training needed |
-| **Cellpose** | Custom-trained model segments bead masks | Dense or irregular fields where StarDist struggles |
+| **Blob** | Gaussian smoothing + local maxima | Default for small fluorescent beads |
+| **Trackpy** | Bandpass filtering + centroid localization | Low-NA / background gradients |
+| **StarDist** | Pretrained neural network (`2D_versatile_fluo`) finds star-convex objects | Beads roughly 15+ px diameter |
+| **Cellpose** | Custom-trained model segments bead masks | Dense/overlapping fields, beads roughly 15+ px diameter |
 
-StarDist has a **blob fallback** (`--use_blob_fallback`): if the neural network
-finds zero beads (e.g. because beads are too dim or too sparse for the pretrained
-model), it falls back to a classical Gaussian-smooth + local-maximum detector.
+StarDist still has a **blob fallback** (`--use_blob_fallback`) when you want to
+keep StarDist as the primary detector but recover from sparse/failed detections.
 
 ### 2. Center Refinement
 
@@ -135,6 +145,12 @@ Two methods are always computed for the Z axis, and optionally for X/Y:
 | **Prominence** | Finds the peak, measures width at half the peak prominence | Fast, no assumptions about shape, works on noisy profiles |
 | **Gaussian fit** | Fits `A * exp(-0.5*((x-µ)/σ)²) + C`, computes FWHM = 2√(2 ln 2) × σ | Sub-pixel precision, gives a parametric model, reports fit quality |
 
+Why prominence (instead of simple max-peak half-height):
+
+- **Max-peak half-height** uses half of the absolute peak value. If baseline/background is non-zero, this biases width estimates.
+- **Prominence half-height** uses half of `(peak - base)` and measures relative to the local peak base, so it is much more robust to background offsets and sloped baselines.
+- **Gaussian fit** gives a third independent estimate based on fitted sigma and is useful when you want sub-pixel parametric widths.
+
 Enable Gaussian fitting with `--fit_gaussian`.
 
 ### 6. Fitting Options
@@ -174,18 +190,18 @@ This is invaluable for verifying that the pipeline is measuring what you expect.
 
 ### Standard confocal bead slide (high SNR, uniform background)
 ```bash
-bead-analyzer beads.tif --mode stardist --scale_xy 0.26 --scale_z 2 \
+bead-analyzer beads.tif --mode blob --scale_xy 0.26 --scale_z 2 \
   --fit_gaussian --fit_3d --qa_auto_reject
 ```
 
 ### Light-sheet (spatially varying background, anisotropic Z)
 ```bash
-bead-analyzer beads.tif --mode stardist --scale_xy 0.51 --scale_z 1.0 \
+bead-analyzer beads.tif --mode trackpy --scale_xy 0.51 --scale_z 1.0 \
   --fit_gaussian --fit_3d --robust_fit --local_background \
   --qa_auto_reject --save_diagnostics
 ```
 
-### Sparse beads where StarDist finds nothing
+### Keep StarDist primary but allow classical fallback
 ```bash
 bead-analyzer beads.tif --mode stardist --scale_xy 0.51 --scale_z 1.0 \
   --use_blob_fallback --fit_gaussian

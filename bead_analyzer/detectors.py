@@ -9,7 +9,7 @@
 # -----------------------------------------------------------------------------
 
 """
-Bead detection: manual (interactive), StarDist, Cellpose, and trackpy.
+Bead detection: manual (interactive), blob, trackpy, StarDist, and Cellpose.
 """
 
 import numpy as np
@@ -90,7 +90,7 @@ def _detect_points_blob_localmax(mip_image, sigma=1.2, threshold_rel=0.2, min_di
     peaks = (sm == mx) & (sm >= thr)
     ys, xs = np.where(peaks)
     pts = [(float(x), float(y)) for y, x in zip(ys, xs)]
-    print(f"Blob fallback found {len(pts)} candidate beads.")
+    print(f"Found {len(pts)} beads with blob detector.")
     return pts
 
 
@@ -128,6 +128,25 @@ def _detect_points_trackpy(mip_image, diameter=5, minmass=5000, separation=None)
     pts = list(zip(features['x'].astype(float), features['y'].astype(float)))
     print(f"Found {len(pts)} beads with trackpy.")
     return pts
+
+
+def get_points_blob(mip_image, points_file=None, sigma=1.2, threshold_rel=0.2, min_distance_px=5):
+    """Classical blob detection: Gaussian smooth + local maxima."""
+    if points_file:
+        return load_points_from_file(points_file)
+    print("\n--- Detecting beads with Blob detector ---")
+    return _detect_points_blob_localmax(
+        mip_image, sigma=sigma, threshold_rel=threshold_rel, min_distance_px=min_distance_px
+    )
+
+
+def get_points_trackpy(mip_image, points_file=None, diameter=5, minmass=5000, separation=None):
+    """trackpy bandpass + centroid detector."""
+    if points_file:
+        return load_points_from_file(points_file)
+    return _detect_points_trackpy(
+        mip_image, diameter=diameter, minmass=minmass, separation=separation
+    )
 
 
 def get_points_stardist(

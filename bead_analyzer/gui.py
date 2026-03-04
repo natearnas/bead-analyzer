@@ -12,6 +12,7 @@
 CustomTkinter GUI for FWHM bead analysis.
 """
 
+import json
 import threading
 from pathlib import Path
 
@@ -29,7 +30,8 @@ def _run_analysis(input_file, output_dir, mode, scale_xy, scale_z, na, fluoropho
                   fit_3d=False, save_diagnostics=False, qa_auto_reject=False,
                   cellpose_do_3d=False, anisotropy=None, use_blob_fallback=False,
                   local_background=False, robust_fit=False,
-                  cellpose_min_size=3, cellpose_flow_threshold=0.4):
+                  cellpose_min_size=3, cellpose_flow_threshold=0.4,
+                  num_beads_avg=20):
     """Run analysis in background thread."""
     import tifffile
     from . import analysis
@@ -62,6 +64,16 @@ def _run_analysis(input_file, output_dir, mode, scale_xy, scale_z, na, fluoropho
             status_callback("Manual mode: select beads...")
             results, bead_volumes, mip, profiles, rejected = analysis.run_manual(stack, **kwargs)
             bead_log = None
+        elif mode == 'blob':
+            status_callback("Blob detection...")
+            kwargs['review_detection'] = review_detection
+            results, bead_volumes, mip, profiles, rejected = analysis.run_blob(stack, **kwargs)
+            bead_log = None
+        elif mode == 'trackpy':
+            status_callback("Trackpy detection...")
+            kwargs['review_detection'] = review_detection
+            results, bead_volumes, mip, profiles, rejected = analysis.run_trackpy(stack, **kwargs)
+            bead_log = None
         elif mode == 'stardist':
             status_callback("StarDist detection...")
             kwargs['review_detection'] = review_detection
@@ -85,6 +97,8 @@ def _run_analysis(input_file, output_dir, mode, scale_xy, scale_z, na, fluoropho
             results, bead_volumes, mip, output_path, mode,
             scale_xy, scale_z, bead_log=bead_log, na=na, fluorophore=fluorophore,
             qa_min_snr=qa_min_snr, qa_min_symmetry=qa_min_symmetry, rejected=rejected,
+            profiles=profiles,
+            num_beads_avg=num_beads_avg,
         )
         rej_msg = f" ({len(rejected)} rejected)" if rejected else ""
         status_callback(f"Done. {len(results)} beads analyzed{rej_msg}.")
@@ -101,36 +115,64 @@ def main():
     ctk.set_default_color_theme("blue")
     app = ctk.CTk()
     app.title("Bead Analyzer")
-    app.geometry("560x760")
-    app.minsize(450, 600)
+    app.geometry("600x1130")
+    app.minsize(550, 1030)
 
-    # Variables
-    input_file = ctk.StringVar()
-    output_dir = ctk.StringVar()
-    scale_xy = ctk.StringVar(value="0.26")
-    scale_z = ctk.StringVar(value="2.0")
-    channel_var = ctk.StringVar(value="0")
-    na_var = ctk.StringVar(value="")
-    fluorophore_var = ctk.StringVar(value="")
-    mode_var = ctk.StringVar(value="manual")
-    cellpose_model_var = ctk.StringVar(value="")
+    # Persistent settings path (user home directory)
+    _settings_file = Path.home() / '.bead_analyzer_last_settings.json'
+
+    def _load_last_settings():
+        """Load last-used settings from disk, returning a dict (empty if none)."""
+        try:
+            if _settings_file.exists():
+                with open(_settings_file) as f:
+                    return json.load(f)
+        except Exception:
+            pass
+        return {}
+
+    prev = _load_last_settings()
+
+    # Variables -- restore from last session when available
+    prev_fit_mode = prev.get('fit_mode')
+    if prev_fit_mode not in ('1d', '3d', 'both', 'none'):
+        # Backward-compatible mapping from older boolean settings.
+        old_1d = bool(prev.get('fit_gaussian', True))
+        old_3d = bool(prev.get('fit_3d', False))
+        if old_1d and old_3d:
+            prev_fit_mode = 'both'
+        elif old_3d:
+            prev_fit_mode = '3d'
+        elif old_1d:
+            prev_fit_mode = '1d'
+        else:
+            prev_fit_mode = 'none'
+    input_file = ctk.StringVar(value=prev.get('input_file', ''))
+    output_dir = ctk.StringVar(value=prev.get('output_dir', ''))
+    scale_xy = ctk.StringVar(value=str(prev.get('scale_xy', '0.26')))
+    scale_z = ctk.StringVar(value=str(prev.get('scale_z', '2.0')))
+    channel_var = ctk.StringVar(value=str(prev.get('channel', '0')))
+    na_var = ctk.StringVar(value=str(prev.get('na', '')) if prev.get('na') is not None else '')
+    fluorophore_var = ctk.StringVar(value=prev.get('fluorophore', '') or '')
+    mode_var = ctk.StringVar(value=prev.get('mode', 'blob'))
+    cellpose_model_var = ctk.StringVar(value=prev.get('cellpose_model', ''))
     status_var = ctk.StringVar(value="Ready")
-    fit_gaussian = ctk.BooleanVar(value=True)
-    subtract_background = ctk.BooleanVar(value=False)
-    review_detection_var = ctk.BooleanVar(value=True)
-    skip_cellpose_review_var = ctk.BooleanVar(value=False)
-    qa_snr_var = ctk.StringVar(value="3.0")
-    qa_sym_var = ctk.StringVar(value="0.6")
-    fit_3d_var = ctk.BooleanVar(value=False)
-    save_diagnostics_var = ctk.BooleanVar(value=False)
-    qa_auto_reject_var = ctk.BooleanVar(value=False)
-    cellpose_do_3d_var = ctk.BooleanVar(value=False)
-    anisotropy_var = ctk.StringVar(value="")
-    blob_fallback_var = ctk.BooleanVar(value=False)
-    local_background_var = ctk.BooleanVar(value=False)
-    robust_fit_var = ctk.BooleanVar(value=False)
-    cellpose_min_size_var = ctk.StringVar(value="3")
-    cellpose_flow_threshold_var = ctk.StringVar(value="0.4")
+    fit_mode_var = ctk.StringVar(value=prev_fit_mode)
+    subtract_background = ctk.BooleanVar(value=prev.get('subtract_background', False))
+    review_detection_var = ctk.BooleanVar(value=prev.get('review_detection', True))
+    skip_cellpose_review_var = ctk.BooleanVar(value=prev.get('skip_cellpose_review', False))
+    qa_snr_var = ctk.StringVar(value=str(prev.get('qa_min_snr', '3.0')))
+    qa_sym_var = ctk.StringVar(value=str(prev.get('qa_min_symmetry', '0.6')))
+    save_diagnostics_var = ctk.BooleanVar(value=prev.get('save_diagnostics', False))
+    qa_auto_reject_var = ctk.BooleanVar(value=prev.get('qa_auto_reject', False))
+    cellpose_do_3d_var = ctk.BooleanVar(value=prev.get('cellpose_do_3d', False))
+    anisotropy_var = ctk.StringVar(value=str(prev.get('anisotropy', '')) if prev.get('anisotropy') is not None else '')
+    blob_fallback_var = ctk.BooleanVar(value=prev.get('use_blob_fallback', False))
+    local_background_var = ctk.BooleanVar(value=prev.get('local_background', False))
+    robust_fit_var = ctk.BooleanVar(value=prev.get('robust_fit', True))
+    cellpose_min_size_var = ctk.StringVar(value=str(prev.get('cellpose_min_size', '3')))
+    cellpose_flow_threshold_var = ctk.StringVar(value=str(prev.get('cellpose_flow_threshold', '0.4')))
+    num_beads_avg_var = ctk.StringVar(value=str(prev.get('num_beads_avg', '20')))
 
     def browse_input():
         path = filedialog.askopenfilename(
@@ -145,6 +187,7 @@ def main():
             input_file.set(path)
             if not output_dir.get():
                 output_dir.set(str(Path(path).parent))
+            _update_channel_options(path)
 
     def browse_output():
         path = filedialog.askdirectory(title="Select output directory")
@@ -155,6 +198,35 @@ def main():
         path = filedialog.askopenfilename(title="Select Cellpose model file")
         if path:
             cellpose_model_var.set(path)
+
+    def _detect_channel_count(path):
+        """Infer number of channels from TIFF metadata without full volume read."""
+        try:
+            import tifffile
+
+            with tifffile.TiffFile(str(path)) as tif:
+                if not tif.series:
+                    return 1
+                series = tif.series[0]
+                shape = tuple(getattr(series, "shape", ()))
+                axes = str(getattr(series, "axes", ""))
+                if "C" in axes:
+                    idx = axes.index("C")
+                    return max(1, int(shape[idx]))
+                # Fallback convention used by this project for 4D stacks: (C, Z, Y, X)
+                if len(shape) == 4:
+                    return max(1, int(shape[0]))
+        except Exception:
+            pass
+        return 1
+
+    def _update_channel_options(path):
+        """Refresh channel dropdown values from selected input file."""
+        n_channels = _detect_channel_count(path) if path else 1
+        values = [str(i) for i in range(n_channels)]
+        channel_menu.configure(values=values)
+        if channel_var.get() not in values:
+            channel_var.set(values[0])
 
     def run():
         inp = input_file.get()
@@ -171,8 +243,9 @@ def main():
             aniso = float(anisotropy_var.get()) if anisotropy_var.get().strip() else None
             cp_min_size = int(cellpose_min_size_var.get())
             cp_flow = float(cellpose_flow_threshold_var.get())
+            n_avg = int(num_beads_avg_var.get())
         except ValueError:
-            messagebox.showerror("Error", "Scale XY, Z, channel, QA, box size, anisotropy, and Cellpose params must be valid numbers.")
+            messagebox.showerror("Error", "Scale XY, Z, channel, QA, box size, anisotropy, num beads avg, and Cellpose params must be valid numbers.")
             return
         out = output_dir.get() or str(Path(inp).parent)
         na_val = float(na_var.get()) if na_var.get().strip() else None
@@ -183,11 +256,14 @@ def main():
             app.update_idletasks()
 
         cellpose_path = (cellpose_model_var.get().strip() or None) if mode_var.get() == 'cellpose' else None
+        fit_mode = fit_mode_var.get()
+        fit_gaussian = fit_mode in ('1d', 'both')
+        fit_3d = fit_mode in ('3d', 'both')
 
         def run_thread():
             _run_analysis(
                 inp, out, mode_var.get(), sx, sz, na_val, fluor,
-                bx, fit_gaussian.get(), subtract_background.get(),
+                bx, fit_gaussian, subtract_background.get(),
                 status,
                 cellpose_model_path=cellpose_path,
                 channel=ch,
@@ -195,7 +271,7 @@ def main():
                 skip_cellpose_review=skip_cellpose_review_var.get(),
                 qa_min_snr=qa_snr,
                 qa_min_symmetry=qa_sym,
-                fit_3d=fit_3d_var.get(),
+                fit_3d=fit_3d,
                 save_diagnostics=save_diagnostics_var.get(),
                 qa_auto_reject=qa_auto_reject_var.get(),
                 cellpose_do_3d=cellpose_do_3d_var.get(),
@@ -205,7 +281,51 @@ def main():
                 robust_fit=robust_fit_var.get(),
                 cellpose_min_size=cp_min_size,
                 cellpose_flow_threshold=cp_flow,
+                num_beads_avg=n_avg,
             )
+
+        settings = {
+            'input_file': inp,
+            'output_dir': out,
+            'mode': mode_var.get(),
+            'scale_xy': sx,
+            'scale_z': sz,
+            'na': na_val,
+            'fluorophore': fluor,
+            'channel': ch,
+            'box_size': bx,
+            'fit_mode': fit_mode,
+            'subtract_background': subtract_background.get(),
+            'review_detection': review_detection_var.get(),
+            'skip_cellpose_review': skip_cellpose_review_var.get(),
+            'qa_min_snr': qa_snr,
+            'qa_min_symmetry': qa_sym,
+            'save_diagnostics': save_diagnostics_var.get(),
+            'qa_auto_reject': qa_auto_reject_var.get(),
+            'cellpose_do_3d': cellpose_do_3d_var.get(),
+            'anisotropy': aniso,
+            'use_blob_fallback': blob_fallback_var.get(),
+            'local_background': local_background_var.get(),
+            'robust_fit': robust_fit_var.get(),
+            'cellpose_min_size': cp_min_size,
+            'cellpose_flow_threshold': cp_flow,
+            'num_beads_avg': n_avg,
+        }
+        if cellpose_path:
+            settings['cellpose_model'] = cellpose_path
+        # Save to output directory (portable config for CLI --config)
+        settings_path = Path(out) / 'bead_analyzer_settings.json'
+        try:
+            with open(settings_path, 'w') as f:
+                json.dump(settings, f, indent=2)
+        except Exception:
+            pass
+        # Save to home directory (auto-restored on next GUI launch)
+        try:
+            with open(_settings_file, 'w') as f:
+                json.dump(settings, f, indent=2)
+        except Exception:
+            pass
 
         status_var.set("Running...")
         threading.Thread(target=run_thread, daemon=True).start()
@@ -233,81 +353,163 @@ def main():
     ctk.CTkLabel(app, text="Experimental parameters", font=ctk.CTkFont(weight="bold")).pack(anchor="w", **pad)
     frame_params = ctk.CTkFrame(app, fg_color="transparent")
     frame_params.pack(fill="x", **pad)
-    ctk.CTkLabel(frame_params, text="Scale XY (µm/px):").grid(row=0, column=0, sticky="w", padx=(0, 8), pady=2)
-    ctk.CTkEntry(frame_params, textvariable=scale_xy, width=80).grid(row=0, column=1, padx=(0, 16), pady=2)
-    ctk.CTkLabel(frame_params, text="Scale Z (µm/px):").grid(row=1, column=0, sticky="w", padx=(0, 8), pady=2)
-    ctk.CTkEntry(frame_params, textvariable=scale_z, width=80).grid(row=1, column=1, padx=(0, 16), pady=2)
-    ctk.CTkLabel(frame_params, text="NA:").grid(row=2, column=0, sticky="w", padx=(0, 8), pady=2)
-    ctk.CTkEntry(frame_params, textvariable=na_var, width=80).grid(row=2, column=1, padx=(0, 16), pady=2)
-    ctk.CTkLabel(frame_params, text="Fluorophore:").grid(row=3, column=0, sticky="w", padx=(0, 8), pady=2)
-    ctk.CTkEntry(frame_params, textvariable=fluorophore_var, width=120).grid(row=3, column=1, padx=(0, 16), pady=2)
-    ctk.CTkLabel(frame_params, text="Channel (0-based):").grid(row=4, column=0, sticky="w", padx=(0, 8), pady=2)
-    ctk.CTkEntry(frame_params, textvariable=channel_var, width=80).grid(row=4, column=1, padx=(0, 16), pady=2)
+    ctk.CTkLabel(frame_params, text="Scaling (um/pix):").pack(side="left", padx=(0, 8))
+    ctk.CTkLabel(frame_params, text="XY").pack(side="left", padx=(0, 4))
+    ctk.CTkEntry(frame_params, textvariable=scale_xy, width=80).pack(side="left", padx=(0, 12))
+    ctk.CTkLabel(frame_params, text="Z").pack(side="left", padx=(0, 4))
+    ctk.CTkEntry(frame_params, textvariable=scale_z, width=80).pack(side="left")
+
+    frame_channel = ctk.CTkFrame(app, fg_color="transparent")
+    frame_channel.pack(fill="x", **pad)
+    ctk.CTkLabel(frame_channel, text="Channel:").pack(side="left", padx=(0, 8))
+    channel_menu = ctk.CTkOptionMenu(frame_channel, variable=channel_var, values=["0"], width=100)
+    channel_menu.pack(side="left")
+    _update_channel_options(input_file.get() if input_file.get() else None)
 
     # Mode
     ctk.CTkLabel(app, text="Detection mode", font=ctk.CTkFont(weight="bold")).pack(anchor="w", **pad)
     frame_mode = ctk.CTkFrame(app, fg_color="transparent")
     frame_mode.pack(fill="x", **pad)
-    ctk.CTkRadioButton(frame_mode, text="Manual", variable=mode_var, value="manual").pack(side="left", padx=(0, 16))
-    ctk.CTkRadioButton(frame_mode, text="StarDist", variable=mode_var, value="stardist").pack(side="left", padx=(0, 16))
+    ctk.CTkRadioButton(frame_mode, text="Manual", variable=mode_var, value="manual").pack(side="left", padx=(0, 10))
+    ctk.CTkRadioButton(frame_mode, text="Blob", variable=mode_var, value="blob").pack(side="left", padx=(0, 10))
+    ctk.CTkRadioButton(frame_mode, text="Trackpy", variable=mode_var, value="trackpy").pack(side="left", padx=(0, 10))
+    ctk.CTkRadioButton(frame_mode, text="StarDist", variable=mode_var, value="stardist").pack(side="left", padx=(0, 10))
     ctk.CTkRadioButton(frame_mode, text="Cellpose", variable=mode_var, value="cellpose").pack(side="left")
 
-    # Cellpose model
-    frame_cellpose = ctk.CTkFrame(app, fg_color="transparent")
-    frame_cellpose.pack(fill="x", **pad)
-    ctk.CTkLabel(frame_cellpose, text="Cellpose model (file):").pack(anchor="w")
-    frame_cp = ctk.CTkFrame(app, fg_color="transparent")
-    frame_cp.pack(fill="x", **pad)
-    ctk.CTkEntry(frame_cp, textvariable=cellpose_model_var, width=350).pack(side="left", fill="x", expand=True, padx=(0, 6))
-    ctk.CTkButton(frame_cp, text="Browse", width=80, command=browse_cellpose_model).pack(side="left")
-    ctk.CTkLabel(app, text="(or set FWHM_CELLPOSE_MODEL env var)", text_color="gray", font=ctk.CTkFont(size=11)).pack(anchor="w", padx=(12, 0))
+    # --- Analysis options (always enabled) ---
+    ctk.CTkLabel(app, text="Analysis options", font=ctk.CTkFont(weight="bold")).pack(anchor="w", **pad)
 
-    # Options
-    ctk.CTkLabel(app, text="Options", font=ctk.CTkFont(weight="bold")).pack(anchor="w", **pad)
-    frame_opts1 = ctk.CTkFrame(app, fg_color="transparent")
-    frame_opts1.pack(fill="x", **pad)
-    ctk.CTkCheckBox(frame_opts1, text="Fit Gaussian (1D)", variable=fit_gaussian).pack(side="left", padx=(0, 16))
-    ctk.CTkCheckBox(frame_opts1, text="Fit 3D Gaussian", variable=fit_3d_var).pack(side="left", padx=(0, 16))
-    ctk.CTkCheckBox(frame_opts1, text="Subtract background", variable=subtract_background).pack(side="left")
-    
-    frame_opts2 = ctk.CTkFrame(app, fg_color="transparent")
-    frame_opts2.pack(fill="x", **pad)
-    ctk.CTkCheckBox(frame_opts2, text="Save bead diagnostics", variable=save_diagnostics_var).pack(side="left", padx=(0, 16))
-    ctk.CTkCheckBox(frame_opts2, text="Auto-reject low QA", variable=qa_auto_reject_var).pack(side="left")
-    
-    frame_opts3 = ctk.CTkFrame(app, fg_color="transparent")
-    frame_opts3.pack(fill="x", **pad)
-    ctk.CTkCheckBox(frame_opts3, text="Review StarDist detection", variable=review_detection_var).pack(side="left", padx=(0, 16))
-    ctk.CTkCheckBox(frame_opts3, text="Blob fallback (StarDist)", variable=blob_fallback_var).pack(side="left")
-    frame_opts4 = ctk.CTkFrame(app, fg_color="transparent")
-    frame_opts4.pack(fill="x", **pad)
-    ctk.CTkCheckBox(frame_opts4, text="Cellpose native 3D", variable=cellpose_do_3d_var).pack(side="left", padx=(0, 16))
-    ctk.CTkCheckBox(frame_opts4, text="Skip Cellpose review", variable=skip_cellpose_review_var).pack(side="left")
-    frame_opts5 = ctk.CTkFrame(app, fg_color="transparent")
-    frame_opts5.pack(fill="x", **pad)
-    ctk.CTkCheckBox(frame_opts5, text="Local background", variable=local_background_var).pack(side="left", padx=(0, 16))
-    ctk.CTkCheckBox(frame_opts5, text="Robust fit (Huber loss)", variable=robust_fit_var).pack(side="left")
-    frame_box = ctk.CTkFrame(app, fg_color="transparent")
-    frame_box.pack(fill="x", **pad)
-    box_entry_var = ctk.StringVar(value="15")
-    ctk.CTkLabel(frame_box, text="Box size (px):").pack(side="left", padx=(0, 8))
-    ctk.CTkEntry(frame_box, textvariable=box_entry_var, width=50).pack(side="left")
+    # Fitting
+    sub = ctk.CTkFont(size=12, weight="bold")
+    ctk.CTkLabel(app, text="Fitting", font=sub).pack(anchor="w", padx=12, pady=(4, 2))
+    frame_fit = ctk.CTkFrame(app, fg_color="transparent")
+    frame_fit.pack(fill="x", **pad)
+    ctk.CTkRadioButton(frame_fit, text="1D Gaussian", variable=fit_mode_var, value="1d").grid(row=0, column=0, sticky="w", padx=(0, 18))
+    ctk.CTkRadioButton(frame_fit, text="3D Gaussian", variable=fit_mode_var, value="3d").grid(row=0, column=1, sticky="w", padx=(0, 18))
+    ctk.CTkRadioButton(frame_fit, text="Both", variable=fit_mode_var, value="both").grid(row=0, column=2, sticky="w", padx=(0, 18))
+    ctk.CTkRadioButton(frame_fit, text="No fit", variable=fit_mode_var, value="none").grid(row=0, column=3, sticky="w")
+    ctk.CTkLabel(frame_fit, text="", font=ctk.CTkFont(size=11), text_color="gray").grid(row=1, column=0, sticky="w")
+    ctk.CTkLabel(frame_fit, text="slower", font=ctk.CTkFont(size=11), text_color="gray").grid(row=1, column=1, sticky="w")
+    ctk.CTkLabel(frame_fit, text="", font=ctk.CTkFont(size=11), text_color="gray").grid(row=1, column=2, sticky="w")
+    ctk.CTkLabel(frame_fit, text="peak width only", font=ctk.CTkFont(size=11), text_color="gray").grid(row=1, column=3, sticky="w")
+    ctk.CTkCheckBox(frame_fit, text="Robust fit (Huber loss)", variable=robust_fit_var).grid(row=2, column=0, columnspan=4, sticky="w", pady=(4, 0))
+
+    # General numeric params
+    frame_gen = ctk.CTkFrame(app, fg_color="transparent")
+    frame_gen.pack(fill="x", **pad)
+    box_entry_var = ctk.StringVar(value=str(prev.get('box_size', '15')))
+    ctk.CTkLabel(frame_gen, text="Box size (px):").pack(side="left", padx=(0, 8))
+    ctk.CTkEntry(frame_gen, textvariable=box_entry_var, width=50).pack(side="left", padx=(0, 16))
+    ctk.CTkLabel(frame_gen, text="Beads to avg (0=all):").pack(side="left", padx=(0, 8))
+    ctk.CTkEntry(frame_gen, textvariable=num_beads_avg_var, width=50).pack(side="left")
+
+    # Background
+    ctk.CTkLabel(app, text="Background", font=sub).pack(anchor="w", padx=12, pady=(4, 2))
+    frame_bg = ctk.CTkFrame(app, fg_color="transparent")
+    frame_bg.pack(fill="x", **pad)
+    ctk.CTkCheckBox(frame_bg, text="Subtract background", variable=subtract_background).pack(side="left", padx=(0, 16))
+    ctk.CTkCheckBox(frame_bg, text="Local background", variable=local_background_var).pack(side="left")
+
+    # Quality & output
+    ctk.CTkLabel(app, text="Quality & output", font=sub).pack(anchor="w", padx=12, pady=(4, 2))
+    frame_qa_cb = ctk.CTkFrame(app, fg_color="transparent")
+    frame_qa_cb.pack(fill="x", **pad)
+    ctk.CTkCheckBox(frame_qa_cb, text="Save bead diagnostics", variable=save_diagnostics_var).pack(side="left", padx=(0, 16))
+    ctk.CTkCheckBox(frame_qa_cb, text="Auto-reject low QA", variable=qa_auto_reject_var).pack(side="left")
     frame_qa = ctk.CTkFrame(app, fg_color="transparent")
     frame_qa.pack(fill="x", **pad)
     ctk.CTkLabel(frame_qa, text="QA min SNR:").pack(side="left", padx=(0, 8))
     ctk.CTkEntry(frame_qa, textvariable=qa_snr_var, width=60).pack(side="left", padx=(0, 16))
     ctk.CTkLabel(frame_qa, text="QA min symmetry:").pack(side="left", padx=(0, 8))
     ctk.CTkEntry(frame_qa, textvariable=qa_sym_var, width=60).pack(side="left")
-    frame_aniso = ctk.CTkFrame(app, fg_color="transparent")
-    frame_aniso.pack(fill="x", **pad)
-    ctk.CTkLabel(frame_aniso, text="Cellpose anisotropy (z/xy):").pack(side="left", padx=(0, 8))
-    ctk.CTkEntry(frame_aniso, textvariable=anisotropy_var, width=70).pack(side="left")
+
+    # --- Detection options (Blob / Trackpy / StarDist only) ---
+    detection_header = ctk.CTkLabel(app, text="Detection options", font=ctk.CTkFont(weight="bold"))
+    detection_header.pack(anchor="w", **pad)
+    frame_det = ctk.CTkFrame(app, fg_color="transparent")
+    frame_det.pack(fill="x", **pad)
+    review_detection_cb = ctk.CTkCheckBox(frame_det, text="Review detection overlay", variable=review_detection_var)
+    review_detection_cb.pack(side="left", padx=(0, 16))
+    blob_fallback_cb = ctk.CTkCheckBox(frame_det, text="Blob fallback (StarDist)", variable=blob_fallback_var)
+    blob_fallback_cb.pack(side="left")
+
+    # --- Cellpose options (Cellpose only) ---
+    cellpose_header = ctk.CTkLabel(app, text="Cellpose options", font=ctk.CTkFont(weight="bold"))
+    cellpose_header.pack(anchor="w", **pad)
+    frame_cp_model = ctk.CTkFrame(app, fg_color="transparent")
+    frame_cp_model.pack(fill="x", **pad)
+    cp_model_label = ctk.CTkLabel(frame_cp_model, text="Model file:")
+    cp_model_label.pack(side="left", padx=(0, 8))
+    cp_model_entry = ctk.CTkEntry(frame_cp_model, textvariable=cellpose_model_var, width=300)
+    cp_model_entry.pack(side="left", fill="x", expand=True, padx=(0, 6))
+    cp_model_browse = ctk.CTkButton(frame_cp_model, text="Browse", width=80, command=browse_cellpose_model)
+    cp_model_browse.pack(side="left")
+    cp_env_hint = ctk.CTkLabel(app, text="(or set FWHM_CELLPOSE_MODEL env var)", text_color="gray", font=ctk.CTkFont(size=11))
+    cp_env_hint.pack(anchor="w", padx=(12, 0))
+    frame_cp_checks = ctk.CTkFrame(app, fg_color="transparent")
+    frame_cp_checks.pack(fill="x", **pad)
+    cp_do_3d_cb = ctk.CTkCheckBox(frame_cp_checks, text="Native 3D", variable=cellpose_do_3d_var)
+    cp_do_3d_cb.pack(side="left", padx=(0, 16))
+    cp_skip_review_cb = ctk.CTkCheckBox(frame_cp_checks, text="Skip review", variable=skip_cellpose_review_var)
+    cp_skip_review_cb.pack(side="left")
+    frame_cp_aniso = ctk.CTkFrame(app, fg_color="transparent")
+    frame_cp_aniso.pack(fill="x", **pad)
+    cp_aniso_label = ctk.CTkLabel(frame_cp_aniso, text="Anisotropy (z/xy):")
+    cp_aniso_label.pack(side="left", padx=(0, 8))
+    cp_aniso_entry = ctk.CTkEntry(frame_cp_aniso, textvariable=anisotropy_var, width=70)
+    cp_aniso_entry.pack(side="left")
     frame_cp_params = ctk.CTkFrame(app, fg_color="transparent")
     frame_cp_params.pack(fill="x", **pad)
-    ctk.CTkLabel(frame_cp_params, text="Cellpose min size (px):").pack(side="left", padx=(0, 8))
-    ctk.CTkEntry(frame_cp_params, textvariable=cellpose_min_size_var, width=50).pack(side="left", padx=(0, 16))
-    ctk.CTkLabel(frame_cp_params, text="Flow threshold:").pack(side="left", padx=(0, 8))
-    ctk.CTkEntry(frame_cp_params, textvariable=cellpose_flow_threshold_var, width=50).pack(side="left")
+    cp_minsize_label = ctk.CTkLabel(frame_cp_params, text="Min size (px):")
+    cp_minsize_label.pack(side="left", padx=(0, 8))
+    cp_minsize_entry = ctk.CTkEntry(frame_cp_params, textvariable=cellpose_min_size_var, width=50)
+    cp_minsize_entry.pack(side="left", padx=(0, 16))
+    cp_flow_label = ctk.CTkLabel(frame_cp_params, text="Flow threshold:")
+    cp_flow_label.pack(side="left", padx=(0, 8))
+    cp_flow_entry = ctk.CTkEntry(frame_cp_params, textvariable=cellpose_flow_threshold_var, width=50)
+    cp_flow_entry.pack(side="left")
+
+    # --- Mode-dependent enable/disable ---
+    _default_label_color = ctk.ThemeManager.theme["CTkLabel"]["text_color"]
+    _disabled_color = "gray40"
+    _sections = {
+        'detection': {
+            'header': detection_header,
+            'widgets': [review_detection_cb, blob_fallback_cb],
+            'labels': [],
+        },
+        'cellpose': {
+            'header': cellpose_header,
+            'widgets': [cp_model_entry, cp_model_browse, cp_do_3d_cb,
+                        cp_skip_review_cb, cp_aniso_entry, cp_minsize_entry,
+                        cp_flow_entry],
+            'labels': [cp_model_label, cp_aniso_label, cp_minsize_label,
+                       cp_flow_label],
+        },
+    }
+
+    def _set_section_state(name, enabled):
+        sec = _sections[name]
+        state = "normal" if enabled else "disabled"
+        color = _default_label_color if enabled else _disabled_color
+        sec['header'].configure(text_color=color)
+        for w in sec['widgets']:
+            w.configure(state=state)
+        for lbl in sec['labels']:
+            lbl.configure(text_color=color)
+
+    def _on_mode_change(*_args):
+        mode = mode_var.get()
+        detection_on = mode in ('blob', 'trackpy', 'stardist')
+        _set_section_state('detection', detection_on)
+        if detection_on:
+            blob_fallback_cb.configure(state="normal" if mode == 'stardist' else "disabled")
+        cellpose_on = mode == 'cellpose'
+        _set_section_state('cellpose', cellpose_on)
+        cp_env_hint.configure(text_color="gray" if cellpose_on else _disabled_color)
+
+    mode_var.trace_add("write", _on_mode_change)
+    _on_mode_change()
 
     # Run button
     ctk.CTkButton(app, text="Run Analysis", command=run, height=36, font=ctk.CTkFont(weight="bold")).pack(**pad)
