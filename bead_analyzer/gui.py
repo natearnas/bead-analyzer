@@ -421,7 +421,7 @@ def main():
     ctk.CTkLabel(app, text="Background", font=sub).pack(anchor="w", padx=12, pady=(4, 2))
     frame_bg = ctk.CTkFrame(app, fg_color="transparent")
     frame_bg.pack(fill="x", **pad)
-    ctk.CTkCheckBox(frame_bg, text="Subtract background", variable=subtract_background).pack(side="left", padx=(0, 16))
+    ctk.CTkCheckBox(frame_bg, text="Subtract global background", variable=subtract_background).pack(side="left", padx=(0, 16))
     ctk.CTkCheckBox(frame_bg, text="Local background", variable=local_background_var).pack(side="left")
 
     # Quality & output
