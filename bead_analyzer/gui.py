@@ -111,10 +111,12 @@ def main():
         print("Install customtkinter: pip install customtkinter")
         return 1
 
+    from . import __version__
+
     ctk.set_appearance_mode("dark")
     ctk.set_default_color_theme("blue")
     app = ctk.CTk()
-    app.title("Bead Analyzer")
+    app.title(f"Bead Analyzer v{__version__}")
     app.geometry("600x1130")
     app.minsize(550, 1030)
 
