@@ -147,6 +147,10 @@ def main():
             prev_fit_mode = '1d'
         else:
             prev_fit_mode = 'none'
+
+    # Advanced options toggle
+    show_advanced = ctk.BooleanVar(value=prev.get('show_advanced', False))
+
     input_file = ctk.StringVar(value=prev.get('input_file', ''))
     output_dir = ctk.StringVar(value=prev.get('output_dir', ''))
     scale_xy = ctk.StringVar(value=str(prev.get('scale_xy', '0.26')))
@@ -310,6 +314,7 @@ def main():
             'cellpose_min_size': cp_min_size,
             'cellpose_flow_threshold': cp_flow,
             'num_beads_avg': n_avg,
+            'show_advanced': show_advanced.get(),
         }
         if cellpose_path:
             settings['cellpose_model'] = cellpose_path
@@ -366,15 +371,24 @@ def main():
     channel_menu.pack(side="left")
     _update_channel_options(input_file.get() if input_file.get() else None)
 
+    # Advanced Options Checkbox
+    ctk.CTkCheckBox(app, text="Show Advanced Options", variable=show_advanced,
+                    font=ctk.CTkFont(weight="bold", size=13)).pack(anchor="w", **pad)
+
     # Mode
     ctk.CTkLabel(app, text="Detection mode", font=ctk.CTkFont(weight="bold")).pack(anchor="w", **pad)
     frame_mode = ctk.CTkFrame(app, fg_color="transparent")
     frame_mode.pack(fill="x", **pad)
-    ctk.CTkRadioButton(frame_mode, text="Manual", variable=mode_var, value="manual").pack(side="left", padx=(0, 10))
-    ctk.CTkRadioButton(frame_mode, text="Blob", variable=mode_var, value="blob").pack(side="left", padx=(0, 10))
-    ctk.CTkRadioButton(frame_mode, text="Trackpy", variable=mode_var, value="trackpy").pack(side="left", padx=(0, 10))
-    ctk.CTkRadioButton(frame_mode, text="StarDist", variable=mode_var, value="stardist").pack(side="left", padx=(0, 10))
-    ctk.CTkRadioButton(frame_mode, text="Cellpose", variable=mode_var, value="cellpose").pack(side="left")
+    manual_rb = ctk.CTkRadioButton(frame_mode, text="Manual", variable=mode_var, value="manual")
+    manual_rb.pack(side="left", padx=(0, 10))
+    blob_rb = ctk.CTkRadioButton(frame_mode, text="Blob", variable=mode_var, value="blob")
+    blob_rb.pack(side="left", padx=(0, 10))
+    trackpy_rb = ctk.CTkRadioButton(frame_mode, text="Trackpy", variable=mode_var, value="trackpy")
+    trackpy_rb.pack(side="left", padx=(0, 10))
+    stardist_rb = ctk.CTkRadioButton(frame_mode, text="StarDist", variable=mode_var, value="stardist")
+    stardist_rb.pack(side="left", padx=(0, 10))
+    cellpose_rb = ctk.CTkRadioButton(frame_mode, text="Cellpose", variable=mode_var, value="cellpose")
+    cellpose_rb.pack(side="left")
 
     # --- Analysis options (always enabled) ---
     ctk.CTkLabel(app, text="Analysis options", font=ctk.CTkFont(weight="bold")).pack(anchor="w", **pad)
@@ -498,17 +512,80 @@ def main():
         for lbl in sec['labels']:
             lbl.configure(text_color=color)
 
+    # Advanced options widgets to hide/show
+    _advanced_widgets = {
+        'mode_buttons': [stardist_rb, cellpose_rb],
+        'sections': {
+            'detection': {
+                'header': detection_header,
+                'widgets': [review_detection_cb, blob_fallback_cb],
+                'labels': [],
+            },
+            'cellpose': {
+                'header': cellpose_header,
+                'widgets': [cp_model_entry, cp_model_browse, cp_do_3d_cb,
+                            cp_skip_review_cb, cp_aniso_entry, cp_minsize_entry,
+                            cp_flow_entry],
+                'labels': [cp_model_label, cp_aniso_label, cp_minsize_label,
+                           cp_flow_label],
+                'frames': [frame_cp_model, cp_env_hint, frame_cp_checks,
+                          frame_cp_aniso, frame_cp_params],
+            },
+        },
+    }
+
+    def _toggle_advanced_options(*_args):
+        """Show/hide advanced options based on checkbox state."""
+        is_advanced = show_advanced.get()
+
+        # Show/hide StarDist and Cellpose mode buttons
+        for btn in _advanced_widgets['mode_buttons']:
+            if is_advanced:
+                btn.pack(side="left", padx=(0, 10) if btn == stardist_rb else 0)
+            else:
+                btn.pack_forget()
+                # If user was on advanced mode, switch to blob
+                if mode_var.get() in ('stardist', 'cellpose'):
+                    mode_var.set('blob')
+
+        # Show/hide detection and cellpose sections
+        if is_advanced:
+            # Detection section
+            detection_header.pack(anchor="w", **pad)
+            frame_det.pack(fill="x", **pad)
+            # Cellpose section
+            cellpose_header.pack(anchor="w", **pad)
+            for frame in _advanced_widgets['sections']['cellpose']['frames']:
+                if frame == cp_env_hint:
+                    frame.pack(anchor="w", padx=(12, 0))
+                else:
+                    frame.pack(fill="x", **pad)
+        else:
+            # Hide detection section
+            detection_header.pack_forget()
+            frame_det.pack_forget()
+            # Hide cellpose section
+            cellpose_header.pack_forget()
+            for frame in _advanced_widgets['sections']['cellpose']['frames']:
+                frame.pack_forget()
+
     def _on_mode_change(*_args):
         mode = mode_var.get()
-        detection_on = mode in ('blob', 'trackpy', 'stardist')
-        _set_section_state('detection', detection_on)
-        if detection_on:
-            blob_fallback_cb.configure(state="normal" if mode == 'stardist' else "disabled")
-        cellpose_on = mode == 'cellpose'
-        _set_section_state('cellpose', cellpose_on)
-        cp_env_hint.configure(text_color="gray" if cellpose_on else _disabled_color)
+        is_advanced = show_advanced.get()
 
+        # Only apply mode-dependent logic if advanced mode is on
+        if is_advanced:
+            detection_on = mode in ('blob', 'trackpy', 'stardist')
+            _set_section_state('detection', detection_on)
+            if detection_on:
+                blob_fallback_cb.configure(state="normal" if mode == 'stardist' else "disabled")
+            cellpose_on = mode == 'cellpose'
+            _set_section_state('cellpose', cellpose_on)
+            cp_env_hint.configure(text_color="gray" if cellpose_on else _disabled_color)
+
+    show_advanced.trace_add("write", _toggle_advanced_options)
     mode_var.trace_add("write", _on_mode_change)
+    _toggle_advanced_options()  # Initialize visibility
     _on_mode_change()
 
     # Run button
