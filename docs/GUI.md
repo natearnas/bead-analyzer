@@ -54,7 +54,7 @@ Or: `python -m bead_analyzer.gui`
 3. Choose mode (Manual opens interactive windows for bead selection)
 4. Choose fitting mode (1D / 3D / Both / No fit)
 5. Check other options as needed
-6. Click **Run Analysis**
+6. Click **Analyze beads**
 
 ## Cellpose Mode
 

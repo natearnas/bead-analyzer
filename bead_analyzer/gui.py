@@ -115,8 +115,11 @@ def main():
     ctk.set_default_color_theme("blue")
     app = ctk.CTk()
     app.title("Bead Analyzer")
-    app.geometry("600x1130")
-    app.minsize(550, 1030)
+    # Height is set dynamically in _toggle_advanced_options; start compact
+    HEIGHT_COMPACT = 910
+    HEIGHT_EXPANDED = 1220
+    app.geometry(f"600x{HEIGHT_COMPACT}")
+    app.minsize(550, HEIGHT_COMPACT)
 
     # Persistent settings path (user home directory)
     _settings_file = Path.home() / '.bead_analyzer_last_settings.json'
@@ -371,9 +374,9 @@ def main():
     channel_menu.pack(side="left")
     _update_channel_options(input_file.get() if input_file.get() else None)
 
-    # Advanced Options Checkbox
-    ctk.CTkCheckBox(app, text="Show Advanced Options", variable=show_advanced,
-                    font=ctk.CTkFont(weight="bold", size=13)).pack(anchor="w", **pad)
+    # Advanced Options Checkbox (packed at bottom, below status)
+    show_advanced_cb = ctk.CTkCheckBox(app, text="Show Advanced Options", variable=show_advanced,
+                                       font=ctk.CTkFont(weight="bold", size=13))
 
     # Mode
     ctk.CTkLabel(app, text="Detection mode", font=ctk.CTkFont(weight="bold")).pack(anchor="w", **pad)
@@ -437,8 +440,8 @@ def main():
     ctk.CTkLabel(frame_qa, text="QA min symmetry:").pack(side="left", padx=(0, 8))
     ctk.CTkEntry(frame_qa, textvariable=qa_sym_var, width=60).pack(side="left")
 
-    # --- Detection options (Blob / Trackpy / StarDist only) ---
-    detection_header = ctk.CTkLabel(app, text="Detection options", font=ctk.CTkFont(weight="bold"))
+    # --- Advanced options (Blob / Trackpy / StarDist only) ---
+    detection_header = ctk.CTkLabel(app, text="Advanced options", font=ctk.CTkFont(weight="bold"))
     detection_header.pack(anchor="w", **pad)
     frame_det = ctk.CTkFrame(app, fg_color="transparent")
     frame_det.pack(fill="x", **pad)
@@ -569,6 +572,14 @@ def main():
             for frame in _advanced_widgets['sections']['cellpose']['frames']:
                 frame.pack_forget()
 
+        # Resize window to fit content
+        if is_advanced:
+            app.geometry(f"600x{HEIGHT_EXPANDED}")
+            app.minsize(550, HEIGHT_EXPANDED)
+        else:
+            app.geometry(f"600x{HEIGHT_COMPACT}")
+            app.minsize(550, HEIGHT_COMPACT)
+
     def _on_mode_change(*_args):
         mode = mode_var.get()
         is_advanced = show_advanced.get()
@@ -588,11 +599,13 @@ def main():
     _toggle_advanced_options()  # Initialize visibility
     _on_mode_change()
 
-    # Run button
-    ctk.CTkButton(app, text="Run Analysis", command=run, height=36, font=ctk.CTkFont(weight="bold")).pack(**pad)
+    # Run button (extra 10px above to push down)
+    ctk.CTkButton(app, text="Analyze beads", command=run, height=36, font=ctk.CTkFont(weight="bold")).pack(padx=12, pady=(16, 6))
 
     # Status
     ctk.CTkLabel(app, textvariable=status_var, text_color="gray").pack(**pad)
+
+    show_advanced_cb.pack(anchor="w", **pad)
 
     app.mainloop()
     return 0
