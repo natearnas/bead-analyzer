@@ -114,6 +114,14 @@ Settings are automatically restored from your last session, so you only need to:
 
 ## Tips & Best Practices
 
+### Workflow
+1. Click **Browse** to select your 3D bead stack
+2. Set scale_xy and scale_z from your microscope metadata
+3. Choose **Detection mode** (start with Blob for most cases)
+4. Choose **Fitting mode** (1D / 3D / Both / No fit)
+5. Adjust other options as needed
+6. Click **Analyze beads**
+
 ### Getting Good Results
 - **Use Gaussian fitting** (`1D Gaussian` or `Both`) for publication-quality measurements
 - **Enable "Auto-reject low QA"** to automatically filter poor-quality beads
