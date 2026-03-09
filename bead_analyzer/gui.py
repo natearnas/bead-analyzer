@@ -118,8 +118,8 @@ def main():
     app = ctk.CTk()
     app.title(f"Bead Analyzer v{__version__}")
     # Window size is controlled dynamically by advanced/docs toggles.
-    HEIGHT_COMPACT = 910
-    HEIGHT_EXPANDED = 1220
+    HEIGHT_COMPACT = 960
+    HEIGHT_EXPANDED = 1270
     WIDTH_BASE = 620
     WIDTH_WITH_DOCS = 1080
     app.geometry(f"{WIDTH_BASE}x{HEIGHT_COMPACT}")
@@ -367,9 +367,9 @@ def main():
 
     # File section
     file_results_label = ctk.CTkLabel(left_frame, text="Input file and Results", font=ctk.CTkFont(weight="bold"))
-    file_results_label.pack(anchor="w", **pad)
+    file_results_label.pack(anchor="w", padx=12, pady=(6, 2))
     frame_file = ctk.CTkFrame(left_frame, fg_color="transparent")
-    frame_file.pack(fill="x", **pad)
+    frame_file.pack(fill="x", padx=12, pady=(0, 4))
     input_file_label = ctk.CTkLabel(frame_file, text="Input file:")
     input_file_label.pack(anchor="w")
     entry_input = ctk.CTkEntry(frame_file, textvariable=input_file, width=400)
@@ -378,13 +378,14 @@ def main():
     browse_input_btn.pack(side="left")
 
     output_dir_label = ctk.CTkLabel(left_frame, text="Results directory:")
-    output_dir_label.pack(anchor="w", **pad)
+    output_dir_label.pack(anchor="w", padx=12, pady=(2, 2))
     frame_out = ctk.CTkFrame(left_frame, fg_color="transparent")
-    frame_out.pack(fill="x", **pad)
+    frame_out.pack(fill="x", padx=12, pady=(0, 6))
     entry_out = ctk.CTkEntry(frame_out, textvariable=output_dir, width=400)
     entry_out.pack(side="left", fill="x", expand=True, padx=(0, 6))
     browse_out_btn = ctk.CTkButton(frame_out, text="Browse", width=80, command=browse_output)
     browse_out_btn.pack(side="left")
+    ctk.CTkFrame(left_frame, height=1, fg_color=("gray78", "gray28")).pack(fill="x", padx=(18, 18), pady=(4, 8))
 
     # Parameters
     experimental_params_label = ctk.CTkLabel(left_frame, text="Experimental parameters", font=ctk.CTkFont(weight="bold"))
@@ -405,13 +406,14 @@ def main():
     channel_menu = ctk.CTkOptionMenu(frame_channel, variable=channel_var, values=["0"], width=100)
     channel_menu.pack(side="left")
     _update_channel_options(input_file.get() if input_file.get() else None)
+    ctk.CTkFrame(left_frame, height=1, fg_color=("gray78", "gray28")).pack(fill="x", padx=(18, 18), pady=(4, 8))
 
     # Advanced Options Checkbox (packed at bottom, below status)
     show_advanced_cb = ctk.CTkCheckBox(left_frame, text="Show Advanced Options", variable=show_advanced,
                                        font=ctk.CTkFont(weight="bold", size=13))
 
     # Mode
-    detection_mode_label = ctk.CTkLabel(left_frame, text="Detection mode", font=ctk.CTkFont(weight="bold"))
+    detection_mode_label = ctk.CTkLabel(left_frame, text="Bead detection", font=ctk.CTkFont(weight="bold"))
     detection_mode_label.pack(anchor="w", **pad)
     frame_mode = ctk.CTkFrame(left_frame, fg_color="transparent")
     frame_mode.pack(fill="x", **pad)
@@ -425,14 +427,11 @@ def main():
     stardist_rb.pack(side="left", padx=(0, 10))
     cellpose_rb = ctk.CTkRadioButton(frame_mode, text="Cellpose", variable=mode_var, value="cellpose")
     cellpose_rb.pack(side="left")
+    ctk.CTkFrame(left_frame, height=1, fg_color=("gray78", "gray28")).pack(fill="x", padx=(18, 18), pady=(4, 8))
 
-    # --- Analysis options (always enabled) ---
-    analysis_options_label = ctk.CTkLabel(left_frame, text="Analysis options", font=ctk.CTkFont(weight="bold"))
-    analysis_options_label.pack(anchor="w", **pad)
-
-    # Fitting
+    # Fitting method
     sub = ctk.CTkFont(size=12, weight="bold")
-    fitting_label = ctk.CTkLabel(left_frame, text="Fitting", font=sub)
+    fitting_label = ctk.CTkLabel(left_frame, text="Fitting method", font=sub)
     fitting_label.pack(anchor="w", padx=12, pady=(4, 2))
     frame_fit = ctk.CTkFrame(left_frame, fg_color="transparent")
     frame_fit.pack(fill="x", **pad)
@@ -451,6 +450,9 @@ def main():
     robust_fit_cb = ctk.CTkCheckBox(frame_fit, text="Robust fit (Huber loss)", variable=robust_fit_var)
     robust_fit_cb.grid(row=2, column=0, columnspan=4, sticky="w", pady=(4, 0))
 
+    extraction_avg_label = ctk.CTkLabel(left_frame, text="Extraction & averaging", font=sub)
+    extraction_avg_label.pack(anchor="w", padx=12, pady=(4, 2))
+
     # General numeric params
     frame_gen = ctk.CTkFrame(left_frame, fg_color="transparent")
     frame_gen.pack(fill="x", **pad)
@@ -465,7 +467,7 @@ def main():
     num_beads_entry.pack(side="left")
 
     # Background
-    background_label = ctk.CTkLabel(left_frame, text="Background", font=sub)
+    background_label = ctk.CTkLabel(left_frame, text="Background subtraction", font=sub)
     background_label.pack(anchor="w", padx=12, pady=(4, 2))
     frame_bg = ctk.CTkFrame(left_frame, fg_color="transparent")
     frame_bg.pack(fill="x", **pad)
@@ -644,14 +646,14 @@ def main():
 
     show_advanced.trace_add("write", _toggle_advanced_options)
     mode_var.trace_add("write", _on_mode_change)
+    show_advanced_cb.pack(anchor="w", padx=12, pady=(16, 6))
+
     # Run button (extra 10px above to push down)
     analyze_btn = ctk.CTkButton(left_frame, text="Analyze beads", command=run, height=36, font=ctk.CTkFont(weight="bold"))
     analyze_btn.pack(padx=12, pady=(16, 6))
 
     # Status
     ctk.CTkLabel(left_frame, textvariable=status_var, text_color="gray").pack(**pad)
-
-    show_advanced_cb.pack(anchor="w", **pad)
 
     # Right-side expandable docs panel
     docs_panel = ctk.CTkFrame(root_frame, width=430)
@@ -675,14 +677,16 @@ def main():
     _active_highlight_key = None
     _clear_highlight_job = None
 
-    def _add_setting_doc(key, title, body):
+    def _add_setting_doc(key, title, body, is_child=False):
         section = ctk.CTkFrame(settings_scroll)
         section.pack(fill="x", padx=6, pady=(0, 10))
         default_text_color = ctk.ThemeManager.theme["CTkLabel"]["text_color"]
-        title_lbl = ctk.CTkLabel(section, text=title, font=ctk.CTkFont(weight="bold"), text_color=default_text_color)
-        title_lbl.pack(anchor="w", padx=8, pady=(8, 2))
-        body_lbl = ctk.CTkLabel(section, text=body, justify="left", wraplength=330, text_color=default_text_color)
-        body_lbl.pack(anchor="w", padx=(26, 12), pady=(0, 8))
+        title_text = f"  - {title}" if is_child else title
+        title_lbl = ctk.CTkLabel(section, text=title_text, font=ctk.CTkFont(weight="bold"), text_color=default_text_color)
+        title_lbl.pack(anchor="w", padx=(18, 8) if is_child else (8, 8), pady=(8, 2))
+        body_wrap = 295 if is_child else 320
+        body_lbl = ctk.CTkLabel(section, text=body, justify="left", wraplength=body_wrap, text_color=default_text_color)
+        body_lbl.pack(anchor="w", padx=(38, 12) if is_child else (26, 12), pady=(0, 8))
         divider = ctk.CTkFrame(section, height=1, fg_color=("gray78", "gray28"))
         divider.pack(fill="x", padx=(22, 14), pady=(0, 2))
         setting_anchors[key] = {
@@ -695,38 +699,45 @@ def main():
         }
 
     _add_setting_doc("section_file_results", "Input file and Results", "Select the image stack to analyze and where the results directory for outputs should be saved.")
-    _add_setting_doc("input_file", "Input file", "Path to the TIFF/OME-TIFF bead image stack to analyze.")
-    _add_setting_doc("output_dir", "Results directory", "Folder where CSV tables, figures, overlays, and config JSON files are saved.")
+    _add_setting_doc("input_file", "Input file", "Path to the TIFF/OME-TIFF bead image stack to analyze.", is_child=True)
+    _add_setting_doc("output_dir", "Results directory", "Folder where CSV tables, figures, overlays, and config JSON files are saved.", is_child=True)
     _add_setting_doc("section_experimental", "Experimental parameters", "Core microscope acquisition settings used to convert pixel measurements into physical units.")
-    _add_setting_doc("scale", "Scaling (um/pix): XY, Z", "Physical pixel size. Accurate values are critical for valid FWHM in microns.")
-    _add_setting_doc("channel", "Channel", "Selects image channel index used for detection and measurement.")
-    _add_setting_doc("show_advanced", "Show Advanced Options", "Reveals advanced detector/model options and additional controls.")
-    _add_setting_doc("section_detection_mode", "Detection mode", "Select which bead-detection backend finds candidate bead centers for downstream FWHM analysis.")
-    _add_setting_doc("mode", "Detection mode", "Manual click, Blob, Trackpy, StarDist, or Cellpose bead detection backend.")
-    _add_setting_doc("section_analysis_options", "Analysis options", "Shared measurement settings controlling fitting, averaging, background handling, and quality filtering.")
-    _add_setting_doc("section_fitting", "Fitting", "Controls how widths are estimated from profiles/volumes (parametric fit vs. prominence).")
-    _add_setting_doc("fit_mode", "Fitting mode", "1D Gaussian, 3D Gaussian, Both, or No fit (prominence-only width).")
-    _add_setting_doc("robust_fit", "Robust fit", "Huber-loss Gaussian fitting for better stability when profiles include outliers.")
-    _add_setting_doc("box_size", "Box size (px)", "Crop size around each bead for local profile extraction.")
-    _add_setting_doc("num_beads_avg", "Beads to avg (0=all)", "Number of beads to include in average bead/profile outputs; 0 uses all.")
-    _add_setting_doc("section_background", "Background", "Options to remove baseline/background signal before width measurement.")
-    _add_setting_doc("subtract_background", "Subtract global background", "Subtracts image-wide baseline before profile analysis.")
-    _add_setting_doc("local_background", "Local background", "Uses local neighborhood baseline; useful with nonuniform haze/illumination.")
+    _add_setting_doc("scale", "Scaling (um/pix): XY, Z", "Physical pixel size. Accurate values are critical for valid FWHM in microns.", is_child=True)
+    _add_setting_doc("channel", "Channel", "Selects image channel index used for detection and measurement.", is_child=True)
+    _add_setting_doc("section_detection_mode", "Bead detection", "Select which bead-detection backend finds candidate bead centers for downstream FWHM analysis.")
+    _add_setting_doc("mode_manual", "Manual", "User clicks beads manually; robust for edge cases and sparse/manual QA workflows.", is_child=True)
+    _add_setting_doc("mode_blob", "Blob", "Classical local-max detector; recommended default for small, bright beads.", is_child=True)
+    _add_setting_doc("mode_trackpy", "Trackpy", "Feature-based detector; often good with gradients or lower-SNR data.", is_child=True)
+    _add_setting_doc("mode_stardist", "StarDist (advanced)", "Deep-learning detector best when bead footprints are relatively large and separable.", is_child=True)
+    _add_setting_doc("mode_cellpose", "Cellpose (advanced)", "Deep-learning detector using your trained model; supports dense/complex scenes.", is_child=True)
+    _add_setting_doc("section_fitting", "Fitting method", "Controls how widths are estimated from profiles/volumes (parametric fit vs. prominence).")
+    _add_setting_doc("fit_1d", "1D Gaussian", "Fits Gaussian curves to 1D profiles (X, Y, Z) for sub-pixel FWHM estimates.", is_child=True)
+    _add_setting_doc("fit_3d", "3D Gaussian", "Fits a full 3D Gaussian model to bead volume; more complete but slower.", is_child=True)
+    _add_setting_doc("fit_both", "Both", "Runs both 1D and 3D fitting so you can compare methods.", is_child=True)
+    _add_setting_doc("fit_none", "No fit", "Prominence-only peak width measurement without Gaussian model fitting.", is_child=True)
+    _add_setting_doc("robust_fit", "Robust fit", "Huber-loss Gaussian fitting for better stability when profiles include outliers.", is_child=True)
+    _add_setting_doc("section_extraction_avg", "Extraction & averaging", "Controls local crop size and number of beads used in average outputs.")
+    _add_setting_doc("box_size", "Box size (px)", "Crop size around each bead for local profile extraction.", is_child=True)
+    _add_setting_doc("num_beads_avg", "Beads to avg (0=all)", "Number of beads to include in average bead/profile outputs; 0 uses all.", is_child=True)
+    _add_setting_doc("section_background", "Background subtraction", "Options to remove baseline/background signal before width measurement.")
+    _add_setting_doc("subtract_background", "Subtract global background", "Subtracts image-wide baseline before profile analysis.", is_child=True)
+    _add_setting_doc("local_background", "Local background", "Uses local neighborhood baseline; useful with non-uniform haze and uneven illumination.", is_child=True)
     _add_setting_doc("section_quality_output", "Quality & output", "Options for diagnostics and automatic rejection of low-quality bead measurements.")
-    _add_setting_doc("save_diagnostics", "Save bead diagnostics", "Writes per-bead diagnostic figures for QA and troubleshooting.")
-    _add_setting_doc("qa_auto_reject", "Auto-reject low QA", "Automatically excludes beads below SNR/symmetry thresholds.")
-    _add_setting_doc("qa_snr", "QA min SNR", "Minimum signal-to-noise ratio to accept a bead (when auto-reject is enabled).")
-    _add_setting_doc("qa_sym", "QA min symmetry", "Minimum symmetry metric for bead acceptance (when auto-reject is enabled).")
+    _add_setting_doc("save_diagnostics", "Save bead diagnostics", "Writes per-bead diagnostic figures for QA and troubleshooting.", is_child=True)
+    _add_setting_doc("qa_auto_reject", "Auto-reject low QA", "Automatically excludes beads below SNR/symmetry thresholds.", is_child=True)
+    _add_setting_doc("qa_snr", "QA min SNR", "Minimum signal-to-noise ratio to accept a bead (when auto-reject is enabled).", is_child=True)
+    _add_setting_doc("qa_sym", "QA min symmetry", "Minimum symmetry metric for bead acceptance (when auto-reject is enabled).", is_child=True)
     _add_setting_doc("section_advanced", "Advanced options", "Detector-specific controls used primarily for automatic detection workflows.")
-    _add_setting_doc("review_detection", "Review detection overlay", "Shows a visual overlay so you can validate automatic detections.")
-    _add_setting_doc("blob_fallback", "Blob fallback (StarDist)", "Fallback to classical blob detector if StarDist misses beads.")
+    _add_setting_doc("show_advanced", "Show Advanced Options", "Toggles visibility of advanced detector/model controls in the GUI.", is_child=True)
+    _add_setting_doc("review_detection", "Review detection overlay", "Shows a visual overlay so you can validate automatic detections.", is_child=True)
+    _add_setting_doc("blob_fallback", "Blob fallback (StarDist)", "Fallback to classical blob detector if StarDist misses beads.", is_child=True)
     _add_setting_doc("section_cellpose", "Cellpose options", "Model and inference controls specific to Cellpose detection mode.")
-    _add_setting_doc("cellpose_model", "Cellpose model file", "Path to trained Cellpose model used in Cellpose mode.")
-    _add_setting_doc("cellpose_native_3d", "Cellpose Native 3D", "Uses Cellpose 3D inference instead of tiled 2D inference.")
-    _add_setting_doc("cellpose_skip_review", "Cellpose Skip review", "Skips interactive mask review step for faster runs.")
-    _add_setting_doc("anisotropy", "Anisotropy (z/xy)", "Voxel anisotropy ratio for 3D Cellpose and depth-aware operations.")
-    _add_setting_doc("cellpose_min_size", "Cellpose Min size", "Minimum object size kept by Cellpose post-processing.")
-    _add_setting_doc("cellpose_flow_threshold", "Cellpose Flow threshold", "Flow error threshold controlling Cellpose mask acceptance.")
+    _add_setting_doc("cellpose_model", "Cellpose model file", "Path to trained Cellpose model used in Cellpose mode.", is_child=True)
+    _add_setting_doc("cellpose_native_3d", "Cellpose Native 3D", "Uses Cellpose 3D inference instead of tiled 2D inference.", is_child=True)
+    _add_setting_doc("cellpose_skip_review", "Cellpose Skip review", "Skips interactive mask review step for faster runs.", is_child=True)
+    _add_setting_doc("anisotropy", "Anisotropy (z/xy)", "Voxel anisotropy ratio for 3D Cellpose and depth-aware operations.", is_child=True)
+    _add_setting_doc("cellpose_min_size", "Cellpose Min size", "Minimum object size kept by Cellpose post-processing.", is_child=True)
+    _add_setting_doc("cellpose_flow_threshold", "Cellpose Flow threshold", "Flow error threshold controlling Cellpose mask acceptance.", is_child=True)
 
     for title, body in [
         ("Fast default workflow", "Use Blob + 1D Gaussian, keep robust fit ON, set correct XY/Z scale, and run with default QA."),
@@ -837,18 +848,18 @@ def main():
     _bind_hover(channel_label, "channel")
     _bind_hover(channel_menu, "channel")
     _bind_hover(detection_mode_label, "section_detection_mode")
-    _bind_hover(manual_rb, "mode")
-    _bind_hover(blob_rb, "mode")
-    _bind_hover(trackpy_rb, "mode")
-    _bind_hover(stardist_rb, "mode")
-    _bind_hover(cellpose_rb, "mode")
-    _bind_hover(analysis_options_label, "section_analysis_options")
+    _bind_hover(manual_rb, "mode_manual")
+    _bind_hover(blob_rb, "mode_blob")
+    _bind_hover(trackpy_rb, "mode_trackpy")
+    _bind_hover(stardist_rb, "mode_stardist")
+    _bind_hover(cellpose_rb, "mode_cellpose")
     _bind_hover(fitting_label, "section_fitting")
-    _bind_hover(fit_1d_rb, "fit_mode")
-    _bind_hover(fit_3d_rb, "fit_mode")
-    _bind_hover(fit_both_rb, "fit_mode")
-    _bind_hover(fit_none_rb, "fit_mode")
+    _bind_hover(fit_1d_rb, "fit_1d")
+    _bind_hover(fit_3d_rb, "fit_3d")
+    _bind_hover(fit_both_rb, "fit_both")
+    _bind_hover(fit_none_rb, "fit_none")
     _bind_hover(robust_fit_cb, "robust_fit")
+    _bind_hover(extraction_avg_label, "section_extraction_avg")
     _bind_hover(box_size_label, "box_size")
     _bind_hover(box_entry, "box_size")
     _bind_hover(num_beads_label, "num_beads_avg")

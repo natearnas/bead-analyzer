@@ -23,7 +23,7 @@ The GUI is organized into logical sections from top to bottom:
 - **Scale Z** (µm/pixel) – Z step size from your microscope metadata
 - **Channel** – Channel index for multi-channel stacks (0-based, automatically detects number of channels)
 
-### 3. Detection Mode
+### 3. Bead Detection
 Five radio buttons (default: Blob):
 - **Manual** – Right-click on beads interactively
 - **Blob** – Classical Gaussian smooth + local maxima (recommended default)
@@ -31,9 +31,9 @@ Five radio buttons (default: Blob):
 - **StarDist** – Pretrained neural network (best for beads ~15+ px diameter)
 - **Cellpose** – Custom-trained model (best for beads ~15+ px diameter)
 
-### 4. Analysis Options (Always Available)
+### 4. Core Analysis Controls (Always Available)
 
-#### Fitting Mode (Radio Buttons)
+#### Fitting Method (Radio Buttons)
 - **1D Gaussian** – Standard 1D Gaussian fitting per axis (fast, sub-pixel precision)
 - **3D Gaussian** *(slower)* – Full 3D Gaussian fit to entire bead volume (more accurate for asymmetric PSFs)
 - **Both** – Run both 1D and 3D fits
@@ -41,7 +41,7 @@ Five radio buttons (default: Blob):
 
 **Robust fit (Huber loss)** – Checkbox (default: ON). Downweights outlier pixels in Gaussian fitting tails. Recommended for beads clipped by mask edges or contaminated by nearby beads.
 
-#### Background Options
+#### Background Subtraction
 - **Subtract background** – Interactive ROI selection for global background subtraction
 - **Local background** – Use annulus-based local background instead of global minimum (recommended for light-sheet)
 
@@ -93,8 +93,8 @@ A copy is also saved to `<output_dir>/bead_analyzer_settings.json` for reproduci
 2. Enter **Scale XY** and **Scale Z** from your microscope metadata
    - Check your microscope software (e.g., NIS-Elements, ZEN, FluoView)
    - Or use ImageJ: `Image → Show Info` to see pixel dimensions
-3. Choose **Detection mode** (start with Blob for most cases)
-4. Choose **Fitting mode** (1D Gaussian is a good default, or Both for complete analysis)
+3. Choose **Bead detection** (start with Blob for most cases)
+4. Choose **Fitting method** (1D Gaussian is a good default, or Both for complete analysis)
 5. Adjust **QA thresholds** if needed (defaults are usually fine)
 6. Click **Run Analysis**
 
