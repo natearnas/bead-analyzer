@@ -117,10 +117,12 @@ def main():
     ctk.set_default_color_theme("blue")
     app = ctk.CTk()
     app.title(f"Bead Analyzer v{__version__}")
-    # Height is set dynamically in _toggle_advanced_options; start compact
+    # Window size is controlled dynamically by advanced/docs toggles.
     HEIGHT_COMPACT = 910
     HEIGHT_EXPANDED = 1220
-    app.geometry(f"600x{HEIGHT_COMPACT}")
+    WIDTH_BASE = 620
+    WIDTH_WITH_DOCS = 1080
+    app.geometry(f"{WIDTH_BASE}x{HEIGHT_COMPACT}")
     app.minsize(550, HEIGHT_COMPACT)
 
     # Persistent settings path (user home directory)
@@ -182,6 +184,7 @@ def main():
     cellpose_min_size_var = ctk.StringVar(value=str(prev.get('cellpose_min_size', '3')))
     cellpose_flow_threshold_var = ctk.StringVar(value=str(prev.get('cellpose_flow_threshold', '0.4')))
     num_beads_avg_var = ctk.StringVar(value=str(prev.get('num_beads_avg', '20')))
+    docs_open_var = ctk.BooleanVar(value=False)
 
     def browse_input():
         path = filedialog.askopenfilename(
@@ -340,49 +343,77 @@ def main():
         status_var.set("Running...")
         threading.Thread(target=run_thread, daemon=True).start()
 
+    def _apply_window_geometry():
+        """Apply width/height based on current UI visibility toggles."""
+        target_h = HEIGHT_EXPANDED if show_advanced.get() else HEIGHT_COMPACT
+        target_w = WIDTH_WITH_DOCS if docs_open_var.get() else WIDTH_BASE
+        app.geometry(f"{target_w}x{target_h}")
+        app.minsize(550, target_h)
+
     # Layout
     pad = {"padx": 12, "pady": 6}
-    ctk.CTkLabel(app, text="Bead Analyzer", font=ctk.CTkFont(size=18, weight="bold")).pack(**pad)
+    button_font = ctk.CTkFont(size=14, weight="bold")
+    toggle_font = ctk.CTkFont(size=14)
+    root_frame = ctk.CTkFrame(app, fg_color="transparent")
+    root_frame.pack(fill="both", expand=True)
+    left_frame = ctk.CTkFrame(root_frame, fg_color="transparent")
+    left_frame.pack(side="left", fill="both", expand=True)
+
+    frame_header = ctk.CTkFrame(left_frame, fg_color="transparent")
+    frame_header.pack(fill="x", **pad)
+    ctk.CTkLabel(frame_header, text="Bead Analyzer", font=ctk.CTkFont(size=18, weight="bold")).pack(side="left")
+    docs_toggle_btn = ctk.CTkButton(frame_header, text="Docs ▸", width=96)
+    docs_toggle_btn.pack(side="right")
 
     # File section
-    frame_file = ctk.CTkFrame(app, fg_color="transparent")
+    file_results_label = ctk.CTkLabel(left_frame, text="Input file and Results", font=ctk.CTkFont(weight="bold"))
+    file_results_label.pack(anchor="w", **pad)
+    frame_file = ctk.CTkFrame(left_frame, fg_color="transparent")
     frame_file.pack(fill="x", **pad)
-    ctk.CTkLabel(frame_file, text="Input file:").pack(anchor="w")
+    input_file_label = ctk.CTkLabel(frame_file, text="Input file:")
+    input_file_label.pack(anchor="w")
     entry_input = ctk.CTkEntry(frame_file, textvariable=input_file, width=400)
     entry_input.pack(side="left", fill="x", expand=True, padx=(0, 6))
-    ctk.CTkButton(frame_file, text="Browse", width=80, command=browse_input).pack(side="left")
+    browse_input_btn = ctk.CTkButton(frame_file, text="Browse", width=80, command=browse_input)
+    browse_input_btn.pack(side="left")
 
-    ctk.CTkLabel(app, text="Output directory:").pack(anchor="w", **pad)
-    frame_out = ctk.CTkFrame(app, fg_color="transparent")
+    output_dir_label = ctk.CTkLabel(left_frame, text="Results directory:")
+    output_dir_label.pack(anchor="w", **pad)
+    frame_out = ctk.CTkFrame(left_frame, fg_color="transparent")
     frame_out.pack(fill="x", **pad)
     entry_out = ctk.CTkEntry(frame_out, textvariable=output_dir, width=400)
     entry_out.pack(side="left", fill="x", expand=True, padx=(0, 6))
-    ctk.CTkButton(frame_out, text="Browse", width=80, command=browse_output).pack(side="left")
+    browse_out_btn = ctk.CTkButton(frame_out, text="Browse", width=80, command=browse_output)
+    browse_out_btn.pack(side="left")
 
     # Parameters
-    ctk.CTkLabel(app, text="Experimental parameters", font=ctk.CTkFont(weight="bold")).pack(anchor="w", **pad)
-    frame_params = ctk.CTkFrame(app, fg_color="transparent")
+    experimental_params_label = ctk.CTkLabel(left_frame, text="Experimental parameters", font=ctk.CTkFont(weight="bold"))
+    experimental_params_label.pack(anchor="w", **pad)
+    frame_params = ctk.CTkFrame(left_frame, fg_color="transparent")
     frame_params.pack(fill="x", **pad)
-    ctk.CTkLabel(frame_params, text="Scaling (um/pix):").pack(side="left", padx=(0, 8))
+    scaling_label = ctk.CTkLabel(frame_params, text="Scaling (um/pix):")
+    scaling_label.pack(side="left", padx=(0, 8))
     ctk.CTkLabel(frame_params, text="XY").pack(side="left", padx=(0, 4))
     ctk.CTkEntry(frame_params, textvariable=scale_xy, width=80).pack(side="left", padx=(0, 12))
     ctk.CTkLabel(frame_params, text="Z").pack(side="left", padx=(0, 4))
     ctk.CTkEntry(frame_params, textvariable=scale_z, width=80).pack(side="left")
 
-    frame_channel = ctk.CTkFrame(app, fg_color="transparent")
+    frame_channel = ctk.CTkFrame(left_frame, fg_color="transparent")
     frame_channel.pack(fill="x", **pad)
-    ctk.CTkLabel(frame_channel, text="Channel:").pack(side="left", padx=(0, 8))
+    channel_label = ctk.CTkLabel(frame_channel, text="Channel:")
+    channel_label.pack(side="left", padx=(0, 8))
     channel_menu = ctk.CTkOptionMenu(frame_channel, variable=channel_var, values=["0"], width=100)
     channel_menu.pack(side="left")
     _update_channel_options(input_file.get() if input_file.get() else None)
 
     # Advanced Options Checkbox (packed at bottom, below status)
-    show_advanced_cb = ctk.CTkCheckBox(app, text="Show Advanced Options", variable=show_advanced,
+    show_advanced_cb = ctk.CTkCheckBox(left_frame, text="Show Advanced Options", variable=show_advanced,
                                        font=ctk.CTkFont(weight="bold", size=13))
 
     # Mode
-    ctk.CTkLabel(app, text="Detection mode", font=ctk.CTkFont(weight="bold")).pack(anchor="w", **pad)
-    frame_mode = ctk.CTkFrame(app, fg_color="transparent")
+    detection_mode_label = ctk.CTkLabel(left_frame, text="Detection mode", font=ctk.CTkFont(weight="bold"))
+    detection_mode_label.pack(anchor="w", **pad)
+    frame_mode = ctk.CTkFrame(left_frame, fg_color="transparent")
     frame_mode.pack(fill="x", **pad)
     manual_rb = ctk.CTkRadioButton(frame_mode, text="Manual", variable=mode_var, value="manual")
     manual_rb.pack(side="left", padx=(0, 10))
@@ -396,56 +427,77 @@ def main():
     cellpose_rb.pack(side="left")
 
     # --- Analysis options (always enabled) ---
-    ctk.CTkLabel(app, text="Analysis options", font=ctk.CTkFont(weight="bold")).pack(anchor="w", **pad)
+    analysis_options_label = ctk.CTkLabel(left_frame, text="Analysis options", font=ctk.CTkFont(weight="bold"))
+    analysis_options_label.pack(anchor="w", **pad)
 
     # Fitting
     sub = ctk.CTkFont(size=12, weight="bold")
-    ctk.CTkLabel(app, text="Fitting", font=sub).pack(anchor="w", padx=12, pady=(4, 2))
-    frame_fit = ctk.CTkFrame(app, fg_color="transparent")
+    fitting_label = ctk.CTkLabel(left_frame, text="Fitting", font=sub)
+    fitting_label.pack(anchor="w", padx=12, pady=(4, 2))
+    frame_fit = ctk.CTkFrame(left_frame, fg_color="transparent")
     frame_fit.pack(fill="x", **pad)
-    ctk.CTkRadioButton(frame_fit, text="1D Gaussian", variable=fit_mode_var, value="1d").grid(row=0, column=0, sticky="w", padx=(0, 18))
-    ctk.CTkRadioButton(frame_fit, text="3D Gaussian", variable=fit_mode_var, value="3d").grid(row=0, column=1, sticky="w", padx=(0, 18))
-    ctk.CTkRadioButton(frame_fit, text="Both", variable=fit_mode_var, value="both").grid(row=0, column=2, sticky="w", padx=(0, 18))
-    ctk.CTkRadioButton(frame_fit, text="No fit", variable=fit_mode_var, value="none").grid(row=0, column=3, sticky="w")
+    fit_1d_rb = ctk.CTkRadioButton(frame_fit, text="1D Gaussian", variable=fit_mode_var, value="1d")
+    fit_1d_rb.grid(row=0, column=0, sticky="w", padx=(0, 18))
+    fit_3d_rb = ctk.CTkRadioButton(frame_fit, text="3D Gaussian", variable=fit_mode_var, value="3d")
+    fit_3d_rb.grid(row=0, column=1, sticky="w", padx=(0, 18))
+    fit_both_rb = ctk.CTkRadioButton(frame_fit, text="Both", variable=fit_mode_var, value="both")
+    fit_both_rb.grid(row=0, column=2, sticky="w", padx=(0, 18))
+    fit_none_rb = ctk.CTkRadioButton(frame_fit, text="No fit", variable=fit_mode_var, value="none")
+    fit_none_rb.grid(row=0, column=3, sticky="w")
     ctk.CTkLabel(frame_fit, text="", font=ctk.CTkFont(size=11), text_color="gray").grid(row=1, column=0, sticky="w")
     ctk.CTkLabel(frame_fit, text="slower", font=ctk.CTkFont(size=11), text_color="gray").grid(row=1, column=1, sticky="w")
     ctk.CTkLabel(frame_fit, text="", font=ctk.CTkFont(size=11), text_color="gray").grid(row=1, column=2, sticky="w")
     ctk.CTkLabel(frame_fit, text="peak width only", font=ctk.CTkFont(size=11), text_color="gray").grid(row=1, column=3, sticky="w")
-    ctk.CTkCheckBox(frame_fit, text="Robust fit (Huber loss)", variable=robust_fit_var).grid(row=2, column=0, columnspan=4, sticky="w", pady=(4, 0))
+    robust_fit_cb = ctk.CTkCheckBox(frame_fit, text="Robust fit (Huber loss)", variable=robust_fit_var)
+    robust_fit_cb.grid(row=2, column=0, columnspan=4, sticky="w", pady=(4, 0))
 
     # General numeric params
-    frame_gen = ctk.CTkFrame(app, fg_color="transparent")
+    frame_gen = ctk.CTkFrame(left_frame, fg_color="transparent")
     frame_gen.pack(fill="x", **pad)
     box_entry_var = ctk.StringVar(value=str(prev.get('box_size', '15')))
-    ctk.CTkLabel(frame_gen, text="Box size (px):").pack(side="left", padx=(0, 8))
-    ctk.CTkEntry(frame_gen, textvariable=box_entry_var, width=50).pack(side="left", padx=(0, 16))
-    ctk.CTkLabel(frame_gen, text="Beads to avg (0=all):").pack(side="left", padx=(0, 8))
-    ctk.CTkEntry(frame_gen, textvariable=num_beads_avg_var, width=50).pack(side="left")
+    box_size_label = ctk.CTkLabel(frame_gen, text="Box size (px):")
+    box_size_label.pack(side="left", padx=(0, 8))
+    box_entry = ctk.CTkEntry(frame_gen, textvariable=box_entry_var, width=50)
+    box_entry.pack(side="left", padx=(0, 16))
+    num_beads_label = ctk.CTkLabel(frame_gen, text="Beads to avg (0=all):")
+    num_beads_label.pack(side="left", padx=(0, 8))
+    num_beads_entry = ctk.CTkEntry(frame_gen, textvariable=num_beads_avg_var, width=50)
+    num_beads_entry.pack(side="left")
 
     # Background
-    ctk.CTkLabel(app, text="Background", font=sub).pack(anchor="w", padx=12, pady=(4, 2))
-    frame_bg = ctk.CTkFrame(app, fg_color="transparent")
+    background_label = ctk.CTkLabel(left_frame, text="Background", font=sub)
+    background_label.pack(anchor="w", padx=12, pady=(4, 2))
+    frame_bg = ctk.CTkFrame(left_frame, fg_color="transparent")
     frame_bg.pack(fill="x", **pad)
-    ctk.CTkCheckBox(frame_bg, text="Subtract global background", variable=subtract_background).pack(side="left", padx=(0, 16))
-    ctk.CTkCheckBox(frame_bg, text="Local background", variable=local_background_var).pack(side="left")
+    subtract_bg_cb = ctk.CTkCheckBox(frame_bg, text="Subtract global background", variable=subtract_background)
+    subtract_bg_cb.pack(side="left", padx=(0, 16))
+    local_bg_cb = ctk.CTkCheckBox(frame_bg, text="Local background", variable=local_background_var)
+    local_bg_cb.pack(side="left")
 
     # Quality & output
-    ctk.CTkLabel(app, text="Quality & output", font=sub).pack(anchor="w", padx=12, pady=(4, 2))
-    frame_qa_cb = ctk.CTkFrame(app, fg_color="transparent")
+    quality_output_label = ctk.CTkLabel(left_frame, text="Quality & output", font=sub)
+    quality_output_label.pack(anchor="w", padx=12, pady=(4, 2))
+    frame_qa_cb = ctk.CTkFrame(left_frame, fg_color="transparent")
     frame_qa_cb.pack(fill="x", **pad)
-    ctk.CTkCheckBox(frame_qa_cb, text="Save bead diagnostics", variable=save_diagnostics_var).pack(side="left", padx=(0, 16))
-    ctk.CTkCheckBox(frame_qa_cb, text="Auto-reject low QA", variable=qa_auto_reject_var).pack(side="left")
-    frame_qa = ctk.CTkFrame(app, fg_color="transparent")
+    save_diag_cb = ctk.CTkCheckBox(frame_qa_cb, text="Save bead diagnostics", variable=save_diagnostics_var)
+    save_diag_cb.pack(side="left", padx=(0, 16))
+    qa_reject_cb = ctk.CTkCheckBox(frame_qa_cb, text="Auto-reject low QA", variable=qa_auto_reject_var)
+    qa_reject_cb.pack(side="left")
+    frame_qa = ctk.CTkFrame(left_frame, fg_color="transparent")
     frame_qa.pack(fill="x", **pad)
-    ctk.CTkLabel(frame_qa, text="QA min SNR:").pack(side="left", padx=(0, 8))
-    ctk.CTkEntry(frame_qa, textvariable=qa_snr_var, width=60).pack(side="left", padx=(0, 16))
-    ctk.CTkLabel(frame_qa, text="QA min symmetry:").pack(side="left", padx=(0, 8))
-    ctk.CTkEntry(frame_qa, textvariable=qa_sym_var, width=60).pack(side="left")
+    qa_snr_label = ctk.CTkLabel(frame_qa, text="QA min SNR:")
+    qa_snr_label.pack(side="left", padx=(0, 8))
+    qa_snr_entry = ctk.CTkEntry(frame_qa, textvariable=qa_snr_var, width=60)
+    qa_snr_entry.pack(side="left", padx=(0, 16))
+    qa_sym_label = ctk.CTkLabel(frame_qa, text="QA min symmetry:")
+    qa_sym_label.pack(side="left", padx=(0, 8))
+    qa_sym_entry = ctk.CTkEntry(frame_qa, textvariable=qa_sym_var, width=60)
+    qa_sym_entry.pack(side="left")
 
     # --- Advanced options (Blob / Trackpy / StarDist only) ---
-    detection_header = ctk.CTkLabel(app, text="Advanced options", font=ctk.CTkFont(weight="bold"))
+    detection_header = ctk.CTkLabel(left_frame, text="Advanced options", font=ctk.CTkFont(weight="bold"))
     detection_header.pack(anchor="w", **pad)
-    frame_det = ctk.CTkFrame(app, fg_color="transparent")
+    frame_det = ctk.CTkFrame(left_frame, fg_color="transparent")
     frame_det.pack(fill="x", **pad)
     review_detection_cb = ctk.CTkCheckBox(frame_det, text="Review detection overlay", variable=review_detection_var)
     review_detection_cb.pack(side="left", padx=(0, 16))
@@ -453,9 +505,9 @@ def main():
     blob_fallback_cb.pack(side="left")
 
     # --- Cellpose options (Cellpose only) ---
-    cellpose_header = ctk.CTkLabel(app, text="Cellpose options", font=ctk.CTkFont(weight="bold"))
+    cellpose_header = ctk.CTkLabel(left_frame, text="Cellpose options", font=ctk.CTkFont(weight="bold"))
     cellpose_header.pack(anchor="w", **pad)
-    frame_cp_model = ctk.CTkFrame(app, fg_color="transparent")
+    frame_cp_model = ctk.CTkFrame(left_frame, fg_color="transparent")
     frame_cp_model.pack(fill="x", **pad)
     cp_model_label = ctk.CTkLabel(frame_cp_model, text="Model file:")
     cp_model_label.pack(side="left", padx=(0, 8))
@@ -463,21 +515,21 @@ def main():
     cp_model_entry.pack(side="left", fill="x", expand=True, padx=(0, 6))
     cp_model_browse = ctk.CTkButton(frame_cp_model, text="Browse", width=80, command=browse_cellpose_model)
     cp_model_browse.pack(side="left")
-    cp_env_hint = ctk.CTkLabel(app, text="(or set FWHM_CELLPOSE_MODEL env var)", text_color="gray", font=ctk.CTkFont(size=11))
+    cp_env_hint = ctk.CTkLabel(left_frame, text="(or set FWHM_CELLPOSE_MODEL env var)", text_color="gray", font=ctk.CTkFont(size=11))
     cp_env_hint.pack(anchor="w", padx=(12, 0))
-    frame_cp_checks = ctk.CTkFrame(app, fg_color="transparent")
+    frame_cp_checks = ctk.CTkFrame(left_frame, fg_color="transparent")
     frame_cp_checks.pack(fill="x", **pad)
     cp_do_3d_cb = ctk.CTkCheckBox(frame_cp_checks, text="Native 3D", variable=cellpose_do_3d_var)
     cp_do_3d_cb.pack(side="left", padx=(0, 16))
     cp_skip_review_cb = ctk.CTkCheckBox(frame_cp_checks, text="Skip review", variable=skip_cellpose_review_var)
     cp_skip_review_cb.pack(side="left")
-    frame_cp_aniso = ctk.CTkFrame(app, fg_color="transparent")
+    frame_cp_aniso = ctk.CTkFrame(left_frame, fg_color="transparent")
     frame_cp_aniso.pack(fill="x", **pad)
     cp_aniso_label = ctk.CTkLabel(frame_cp_aniso, text="Anisotropy (z/xy):")
     cp_aniso_label.pack(side="left", padx=(0, 8))
     cp_aniso_entry = ctk.CTkEntry(frame_cp_aniso, textvariable=anisotropy_var, width=70)
     cp_aniso_entry.pack(side="left")
-    frame_cp_params = ctk.CTkFrame(app, fg_color="transparent")
+    frame_cp_params = ctk.CTkFrame(left_frame, fg_color="transparent")
     frame_cp_params.pack(fill="x", **pad)
     cp_minsize_label = ctk.CTkLabel(frame_cp_params, text="Min size (px):")
     cp_minsize_label.pack(side="left", padx=(0, 8))
@@ -574,13 +626,7 @@ def main():
             for frame in _advanced_widgets['sections']['cellpose']['frames']:
                 frame.pack_forget()
 
-        # Resize window to fit content
-        if is_advanced:
-            app.geometry(f"600x{HEIGHT_EXPANDED}")
-            app.minsize(550, HEIGHT_EXPANDED)
-        else:
-            app.geometry(f"600x{HEIGHT_COMPACT}")
-            app.minsize(550, HEIGHT_COMPACT)
+        _apply_window_geometry()
 
     def _on_mode_change(*_args):
         mode = mode_var.get()
@@ -598,16 +644,244 @@ def main():
 
     show_advanced.trace_add("write", _toggle_advanced_options)
     mode_var.trace_add("write", _on_mode_change)
-    _toggle_advanced_options()  # Initialize visibility
-    _on_mode_change()
-
     # Run button (extra 10px above to push down)
-    ctk.CTkButton(app, text="Analyze beads", command=run, height=36, font=ctk.CTkFont(weight="bold")).pack(padx=12, pady=(16, 6))
+    analyze_btn = ctk.CTkButton(left_frame, text="Analyze beads", command=run, height=36, font=ctk.CTkFont(weight="bold"))
+    analyze_btn.pack(padx=12, pady=(16, 6))
 
     # Status
-    ctk.CTkLabel(app, textvariable=status_var, text_color="gray").pack(**pad)
+    ctk.CTkLabel(left_frame, textvariable=status_var, text_color="gray").pack(**pad)
 
     show_advanced_cb.pack(anchor="w", **pad)
+
+    # Right-side expandable docs panel
+    docs_panel = ctk.CTkFrame(root_frame, width=430)
+    docs_panel.pack_propagate(False)
+
+    docs_header = ctk.CTkFrame(docs_panel, fg_color="transparent")
+    docs_header.pack(fill="x", padx=12, pady=(12, 8))
+    ctk.CTkLabel(docs_header, text="Settings and Use Cases", font=ctk.CTkFont(size=16, weight="bold")).pack(anchor="w")
+
+    docs_tabs = ctk.CTkTabview(docs_panel)
+    docs_tabs.pack(fill="both", expand=True, padx=12, pady=(0, 12))
+    docs_tabs.add("Settings")
+    docs_tabs.add("Use Cases")
+
+    settings_scroll = ctk.CTkScrollableFrame(docs_tabs.tab("Settings"))
+    settings_scroll.pack(fill="both", expand=True)
+    use_cases_scroll = ctk.CTkScrollableFrame(docs_tabs.tab("Use Cases"))
+    use_cases_scroll.pack(fill="both", expand=True)
+
+    setting_anchors = {}
+    _active_highlight_key = None
+    _clear_highlight_job = None
+
+    def _add_setting_doc(key, title, body):
+        section = ctk.CTkFrame(settings_scroll)
+        section.pack(fill="x", padx=6, pady=(0, 10))
+        default_text_color = ctk.ThemeManager.theme["CTkLabel"]["text_color"]
+        title_lbl = ctk.CTkLabel(section, text=title, font=ctk.CTkFont(weight="bold"), text_color=default_text_color)
+        title_lbl.pack(anchor="w", padx=8, pady=(8, 2))
+        body_lbl = ctk.CTkLabel(section, text=body, justify="left", wraplength=330, text_color=default_text_color)
+        body_lbl.pack(anchor="w", padx=(26, 12), pady=(0, 8))
+        divider = ctk.CTkFrame(section, height=1, fg_color=("gray78", "gray28"))
+        divider.pack(fill="x", padx=(22, 14), pady=(0, 2))
+        setting_anchors[key] = {
+            "section": section,
+            "title": title_lbl,
+            "body": body_lbl,
+            "title_color": default_text_color,
+            "body_color": default_text_color,
+            "divider": divider,
+        }
+
+    _add_setting_doc("section_file_results", "Input file and Results", "Select the image stack to analyze and where the results directory for outputs should be saved.")
+    _add_setting_doc("input_file", "Input file", "Path to the TIFF/OME-TIFF bead image stack to analyze.")
+    _add_setting_doc("output_dir", "Results directory", "Folder where CSV tables, figures, overlays, and config JSON files are saved.")
+    _add_setting_doc("section_experimental", "Experimental parameters", "Core microscope acquisition settings used to convert pixel measurements into physical units.")
+    _add_setting_doc("scale", "Scaling (um/pix): XY, Z", "Physical pixel size. Accurate values are critical for valid FWHM in microns.")
+    _add_setting_doc("channel", "Channel", "Selects image channel index used for detection and measurement.")
+    _add_setting_doc("show_advanced", "Show Advanced Options", "Reveals advanced detector/model options and additional controls.")
+    _add_setting_doc("section_detection_mode", "Detection mode", "Select which bead-detection backend finds candidate bead centers for downstream FWHM analysis.")
+    _add_setting_doc("mode", "Detection mode", "Manual click, Blob, Trackpy, StarDist, or Cellpose bead detection backend.")
+    _add_setting_doc("section_analysis_options", "Analysis options", "Shared measurement settings controlling fitting, averaging, background handling, and quality filtering.")
+    _add_setting_doc("section_fitting", "Fitting", "Controls how widths are estimated from profiles/volumes (parametric fit vs. prominence).")
+    _add_setting_doc("fit_mode", "Fitting mode", "1D Gaussian, 3D Gaussian, Both, or No fit (prominence-only width).")
+    _add_setting_doc("robust_fit", "Robust fit", "Huber-loss Gaussian fitting for better stability when profiles include outliers.")
+    _add_setting_doc("box_size", "Box size (px)", "Crop size around each bead for local profile extraction.")
+    _add_setting_doc("num_beads_avg", "Beads to avg (0=all)", "Number of beads to include in average bead/profile outputs; 0 uses all.")
+    _add_setting_doc("section_background", "Background", "Options to remove baseline/background signal before width measurement.")
+    _add_setting_doc("subtract_background", "Subtract global background", "Subtracts image-wide baseline before profile analysis.")
+    _add_setting_doc("local_background", "Local background", "Uses local neighborhood baseline; useful with nonuniform haze/illumination.")
+    _add_setting_doc("section_quality_output", "Quality & output", "Options for diagnostics and automatic rejection of low-quality bead measurements.")
+    _add_setting_doc("save_diagnostics", "Save bead diagnostics", "Writes per-bead diagnostic figures for QA and troubleshooting.")
+    _add_setting_doc("qa_auto_reject", "Auto-reject low QA", "Automatically excludes beads below SNR/symmetry thresholds.")
+    _add_setting_doc("qa_snr", "QA min SNR", "Minimum signal-to-noise ratio to accept a bead (when auto-reject is enabled).")
+    _add_setting_doc("qa_sym", "QA min symmetry", "Minimum symmetry metric for bead acceptance (when auto-reject is enabled).")
+    _add_setting_doc("section_advanced", "Advanced options", "Detector-specific controls used primarily for automatic detection workflows.")
+    _add_setting_doc("review_detection", "Review detection overlay", "Shows a visual overlay so you can validate automatic detections.")
+    _add_setting_doc("blob_fallback", "Blob fallback (StarDist)", "Fallback to classical blob detector if StarDist misses beads.")
+    _add_setting_doc("section_cellpose", "Cellpose options", "Model and inference controls specific to Cellpose detection mode.")
+    _add_setting_doc("cellpose_model", "Cellpose model file", "Path to trained Cellpose model used in Cellpose mode.")
+    _add_setting_doc("cellpose_native_3d", "Cellpose Native 3D", "Uses Cellpose 3D inference instead of tiled 2D inference.")
+    _add_setting_doc("cellpose_skip_review", "Cellpose Skip review", "Skips interactive mask review step for faster runs.")
+    _add_setting_doc("anisotropy", "Anisotropy (z/xy)", "Voxel anisotropy ratio for 3D Cellpose and depth-aware operations.")
+    _add_setting_doc("cellpose_min_size", "Cellpose Min size", "Minimum object size kept by Cellpose post-processing.")
+    _add_setting_doc("cellpose_flow_threshold", "Cellpose Flow threshold", "Flow error threshold controlling Cellpose mask acceptance.")
+
+    for title, body in [
+        ("Fast default workflow", "Use Blob + 1D Gaussian, keep robust fit ON, set correct XY/Z scale, and run with default QA."),
+        ("High-quality publication workflow", "Use Both fitting modes, save diagnostics, and enable auto-reject with tuned QA thresholds."),
+        ("Difficult background workflow", "Enable local background, inspect detection overlay, and tighten QA thresholds."),
+        ("Cellpose workflow", "Enable Show Advanced Options, choose Cellpose mode, set model path, then tune min size and flow threshold."),
+        ("Small beads workflow", "Start with Blob or Trackpy instead of DL models when beads are only a few pixels wide."),
+    ]:
+        box = ctk.CTkFrame(use_cases_scroll)
+        box.pack(fill="x", padx=6, pady=(0, 10))
+        ctk.CTkLabel(box, text=title, font=ctk.CTkFont(weight="bold")).pack(anchor="w", padx=8, pady=(8, 2))
+        ctk.CTkLabel(box, text=body, justify="left", wraplength=330).pack(anchor="w", padx=(26, 12), pady=(0, 8))
+        ctk.CTkFrame(box, height=1, fg_color=("gray78", "gray28")).pack(fill="x", padx=(22, 14), pady=(0, 2))
+
+    def _toggle_docs_panel():
+        if docs_open_var.get():
+            docs_panel.pack_forget()
+            docs_open_var.set(False)
+            docs_toggle_btn.configure(text="Docs ▸")
+        else:
+            docs_panel.pack(side="right", fill="y", padx=(0, 8), pady=8)
+            docs_open_var.set(True)
+            docs_toggle_btn.configure(text="Docs ◂")
+        _apply_window_geometry()
+
+    docs_toggle_btn.configure(command=_toggle_docs_panel)
+
+    # Larger text for interactive controls.
+    for w in [docs_toggle_btn, browse_input_btn, browse_out_btn, cp_model_browse, analyze_btn]:
+        w.configure(font=button_font)
+    for w in [
+        show_advanced_cb, manual_rb, blob_rb, trackpy_rb, stardist_rb, cellpose_rb,
+        fit_1d_rb, fit_3d_rb, fit_both_rb, fit_none_rb, robust_fit_cb,
+        subtract_bg_cb, local_bg_cb, save_diag_cb, qa_reject_cb,
+        review_detection_cb, blob_fallback_cb, cp_do_3d_cb, cp_skip_review_cb,
+    ]:
+        w.configure(font=toggle_font)
+    channel_menu.configure(font=toggle_font, dropdown_font=toggle_font)
+    if hasattr(docs_tabs, "_segmented_button"):
+        docs_tabs._segmented_button.configure(font=toggle_font)
+
+    def _clear_setting_highlight():
+        nonlocal _active_highlight_key, _clear_highlight_job
+        if _active_highlight_key is None:
+            _clear_highlight_job = None
+            return
+        card = setting_anchors.get(_active_highlight_key)
+        if not card:
+            _active_highlight_key = None
+            _clear_highlight_job = None
+            return
+        card["section"].configure(fg_color="transparent")
+        card["title"].configure(text_color=card["title_color"])
+        card["body"].configure(text_color=card["body_color"])
+        _active_highlight_key = None
+        _clear_highlight_job = None
+
+    def _highlight_setting(key):
+        nonlocal _active_highlight_key, _clear_highlight_job
+        if key not in setting_anchors:
+            return
+        if _clear_highlight_job is not None:
+            try:
+                app.after_cancel(_clear_highlight_job)
+            except Exception:
+                # Timer may already have fired; safe to ignore.
+                pass
+            _clear_highlight_job = None
+        _clear_setting_highlight()
+        card = setting_anchors[key]
+        card["section"].configure(fg_color=("gray90", "gray24"))
+        card["title"].configure(text_color=("#1f6aa5", "#5fa8e6"))
+        card["body"].configure(text_color=("#1f1f1f", "#d6d6d6"))
+        _active_highlight_key = key
+        _clear_highlight_job = app.after(1800, _clear_setting_highlight)
+
+    def _jump_to_setting(key):
+        if key not in setting_anchors:
+            return
+        # Keep panel collapsed by default; only jump/highlight when user opens Docs.
+        if not docs_open_var.get():
+            return
+        docs_tabs.set("Settings")
+        app.update_idletasks()
+        canvas = getattr(settings_scroll, "_parent_canvas", None)
+        anchor = setting_anchors[key]["section"]
+        if canvas is None:
+            return
+        bbox = canvas.bbox("all")
+        if not bbox:
+            return
+        content_h = max(1, bbox[3] - bbox[1])
+        y_pos = max(0, anchor.winfo_y() - 8)
+        # yview_moveto expects a fraction of the full scrollregion, not max_scroll.
+        canvas.yview_moveto(min(1.0, y_pos / content_h))
+        _highlight_setting(key)
+
+    def _bind_hover(widget, key):
+        widget.bind("<Enter>", lambda _e, k=key: _jump_to_setting(k), add="+")
+
+    _bind_hover(file_results_label, "section_file_results")
+    _bind_hover(entry_input, "input_file")
+    _bind_hover(input_file_label, "input_file")
+    _bind_hover(output_dir_label, "output_dir")
+    _bind_hover(entry_out, "output_dir")
+    _bind_hover(experimental_params_label, "section_experimental")
+    _bind_hover(scaling_label, "scale")
+    _bind_hover(channel_label, "channel")
+    _bind_hover(channel_menu, "channel")
+    _bind_hover(detection_mode_label, "section_detection_mode")
+    _bind_hover(manual_rb, "mode")
+    _bind_hover(blob_rb, "mode")
+    _bind_hover(trackpy_rb, "mode")
+    _bind_hover(stardist_rb, "mode")
+    _bind_hover(cellpose_rb, "mode")
+    _bind_hover(analysis_options_label, "section_analysis_options")
+    _bind_hover(fitting_label, "section_fitting")
+    _bind_hover(fit_1d_rb, "fit_mode")
+    _bind_hover(fit_3d_rb, "fit_mode")
+    _bind_hover(fit_both_rb, "fit_mode")
+    _bind_hover(fit_none_rb, "fit_mode")
+    _bind_hover(robust_fit_cb, "robust_fit")
+    _bind_hover(box_size_label, "box_size")
+    _bind_hover(box_entry, "box_size")
+    _bind_hover(num_beads_label, "num_beads_avg")
+    _bind_hover(num_beads_entry, "num_beads_avg")
+    _bind_hover(background_label, "section_background")
+    _bind_hover(subtract_bg_cb, "subtract_background")
+    _bind_hover(local_bg_cb, "local_background")
+    _bind_hover(quality_output_label, "section_quality_output")
+    _bind_hover(save_diag_cb, "save_diagnostics")
+    _bind_hover(qa_reject_cb, "qa_auto_reject")
+    _bind_hover(qa_snr_label, "qa_snr")
+    _bind_hover(qa_snr_entry, "qa_snr")
+    _bind_hover(qa_sym_label, "qa_sym")
+    _bind_hover(qa_sym_entry, "qa_sym")
+    _bind_hover(detection_header, "section_advanced")
+    _bind_hover(review_detection_cb, "review_detection")
+    _bind_hover(blob_fallback_cb, "blob_fallback")
+    _bind_hover(cellpose_header, "section_cellpose")
+    _bind_hover(cp_model_label, "cellpose_model")
+    _bind_hover(cp_model_entry, "cellpose_model")
+    _bind_hover(cp_do_3d_cb, "cellpose_native_3d")
+    _bind_hover(cp_skip_review_cb, "cellpose_skip_review")
+    _bind_hover(cp_aniso_label, "anisotropy")
+    _bind_hover(cp_aniso_entry, "anisotropy")
+    _bind_hover(cp_minsize_label, "cellpose_min_size")
+    _bind_hover(cp_minsize_entry, "cellpose_min_size")
+    _bind_hover(cp_flow_label, "cellpose_flow_threshold")
+    _bind_hover(cp_flow_entry, "cellpose_flow_threshold")
+    _bind_hover(show_advanced_cb, "show_advanced")
+
+    _toggle_advanced_options()  # Initialize visibility
+    _on_mode_change()
+    _apply_window_geometry()
 
     app.mainloop()
     return 0
