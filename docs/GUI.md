@@ -49,7 +49,7 @@ Five radio buttons (default: Blob):
 - **Save bead diagnostics** – Save per-bead diagnostic plots to `bead_diagnostics/` folder
 - **Auto-reject low QA** – Automatically exclude beads failing QA thresholds
 - **Box size (px)** – Pixels around bead center for Z-profile averaging (default: 15)
-- **Beads to avg (0=all)** – Number of beads for average bead (0 = all, N = closest to median Z-FWHM, default: 20)
+- **Beads to avg (0=all)** – Number of detected beads for average bead (0 = all, N = closest to median Z-FWHM, default: 20)
 - **QA min SNR** – Minimum signal-to-noise ratio (default: 3.0)
 - **QA min symmetry** – Minimum Z-profile symmetry 0-1 scale (default: 0.6)
 
@@ -66,7 +66,7 @@ Five radio buttons (default: Blob):
 - **Flow threshold** – Cellpose flow error threshold (default: 0.4; lower = stricter filtering)
 
 ### 7. Run Button
-- **Run Analysis** – Start analysis in background thread
+- **Analyze beads** – Start analysis in background thread
 - **Status** – Shows current progress (e.g., "Loading image...", "Detecting beads...", "Done")
 
 ## GUI Features
@@ -96,7 +96,7 @@ A copy is also saved to `<output_dir>/bead_analyzer_settings.json` for reproduci
 3. Choose **Bead detection** (start with Blob for most cases)
 4. Choose **Fitting method** (1D Gaussian is a good default, or Both for complete analysis)
 5. Adjust **QA thresholds** if needed (defaults are usually fine)
-6. Click **Run Analysis**
+6. Click **Analyze beads**
 
 ### Subsequent Uses
 Settings are automatically restored from your last session, so you only need to:

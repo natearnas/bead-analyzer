@@ -118,10 +118,13 @@ def main():
     app = ctk.CTk()
     app.title(f"Bead Analyzer v{__version__}")
     # Window size is controlled dynamically by advanced/docs toggles.
-    HEIGHT_COMPACT = 960
-    HEIGHT_EXPANDED = 1270
-    WIDTH_BASE = 620
-    WIDTH_WITH_DOCS = 1080
+    # Values are empirical: measured to fit all widgets without scrolling.
+    # Adjust if widgets are added/removed.
+    HEIGHT_COMPACT = 960       # core controls only
+    HEIGHT_EXPANDED = 1100     # core + two-column advanced options visible
+    WIDTH_BASE = 420           # controls panel only (compact)
+    WIDTH_ADVANCED = 550       # controls panel when advanced options visible (wider)
+    DOCS_PANEL_WIDTH = 820
     app.geometry(f"{WIDTH_BASE}x{HEIGHT_COMPACT}")
     app.minsize(550, HEIGHT_COMPACT)
 
@@ -346,8 +349,8 @@ def main():
     def _apply_window_geometry():
         """Apply width/height based on current UI visibility toggles."""
         target_h = HEIGHT_EXPANDED if show_advanced.get() else HEIGHT_COMPACT
-        target_w = WIDTH_WITH_DOCS if docs_open_var.get() else WIDTH_BASE
-        app.geometry(f"{target_w}x{target_h}")
+        base_w = WIDTH_ADVANCED if show_advanced.get() else WIDTH_BASE
+        app.geometry(f"{base_w}x{target_h}")
         app.minsize(550, target_h)
 
     # Layout
@@ -496,20 +499,34 @@ def main():
     qa_sym_entry = ctk.CTkEntry(frame_qa, textvariable=qa_sym_var, width=60)
     qa_sym_entry.pack(side="left")
 
-    # --- Advanced options (Blob / Trackpy / StarDist only) ---
-    detection_header = ctk.CTkLabel(left_frame, text="Advanced options", font=ctk.CTkFont(weight="bold"))
+    # --- Advanced options container (show/hide as a single unit); wider 2-column layout ---
+    advanced_container = ctk.CTkFrame(left_frame, fg_color="transparent")
+    advanced_container.pack(fill="x")
+
+    adv_left = ctk.CTkFrame(advanced_container, fg_color="transparent")
+    adv_left.pack(side="left", fill="y", anchor="nw", padx=(0, 12))
+    adv_right = ctk.CTkFrame(advanced_container, fg_color="transparent")
+    adv_right.pack(side="left", fill="y", anchor="nw")
+
+    # Left column: Detection review + StarDist options
+    detection_header = ctk.CTkLabel(adv_left, text="Detection review", font=ctk.CTkFont(weight="bold"))
     detection_header.pack(anchor="w", **pad)
-    frame_det = ctk.CTkFrame(left_frame, fg_color="transparent")
+    frame_det = ctk.CTkFrame(adv_left, fg_color="transparent")
     frame_det.pack(fill="x", **pad)
     review_detection_cb = ctk.CTkCheckBox(frame_det, text="Review detection overlay", variable=review_detection_var)
     review_detection_cb.pack(side="left", padx=(0, 16))
-    blob_fallback_cb = ctk.CTkCheckBox(frame_det, text="Blob fallback (StarDist)", variable=blob_fallback_var)
+
+    stardist_header = ctk.CTkLabel(adv_left, text="StarDist options", font=ctk.CTkFont(weight="bold"))
+    stardist_header.pack(anchor="w", **pad)
+    frame_stardist = ctk.CTkFrame(adv_left, fg_color="transparent")
+    frame_stardist.pack(fill="x", **pad)
+    blob_fallback_cb = ctk.CTkCheckBox(frame_stardist, text="Blob fallback", variable=blob_fallback_var)
     blob_fallback_cb.pack(side="left")
 
-    # --- Cellpose options (Cellpose only) ---
-    cellpose_header = ctk.CTkLabel(left_frame, text="Cellpose options", font=ctk.CTkFont(weight="bold"))
+    # Right column: Cellpose options
+    cellpose_header = ctk.CTkLabel(adv_right, text="Cellpose options", font=ctk.CTkFont(weight="bold"))
     cellpose_header.pack(anchor="w", **pad)
-    frame_cp_model = ctk.CTkFrame(left_frame, fg_color="transparent")
+    frame_cp_model = ctk.CTkFrame(adv_right, fg_color="transparent")
     frame_cp_model.pack(fill="x", **pad)
     cp_model_label = ctk.CTkLabel(frame_cp_model, text="Model file:")
     cp_model_label.pack(side="left", padx=(0, 8))
@@ -517,21 +534,21 @@ def main():
     cp_model_entry.pack(side="left", fill="x", expand=True, padx=(0, 6))
     cp_model_browse = ctk.CTkButton(frame_cp_model, text="Browse", width=80, command=browse_cellpose_model)
     cp_model_browse.pack(side="left")
-    cp_env_hint = ctk.CTkLabel(left_frame, text="(or set FWHM_CELLPOSE_MODEL env var)", text_color="gray", font=ctk.CTkFont(size=11))
+    cp_env_hint = ctk.CTkLabel(adv_right, text="(or set FWHM_CELLPOSE_MODEL env var)", text_color="gray", font=ctk.CTkFont(size=11))
     cp_env_hint.pack(anchor="w", padx=(12, 0))
-    frame_cp_checks = ctk.CTkFrame(left_frame, fg_color="transparent")
+    frame_cp_checks = ctk.CTkFrame(adv_right, fg_color="transparent")
     frame_cp_checks.pack(fill="x", **pad)
     cp_do_3d_cb = ctk.CTkCheckBox(frame_cp_checks, text="Native 3D", variable=cellpose_do_3d_var)
     cp_do_3d_cb.pack(side="left", padx=(0, 16))
     cp_skip_review_cb = ctk.CTkCheckBox(frame_cp_checks, text="Skip review", variable=skip_cellpose_review_var)
     cp_skip_review_cb.pack(side="left")
-    frame_cp_aniso = ctk.CTkFrame(left_frame, fg_color="transparent")
+    frame_cp_aniso = ctk.CTkFrame(adv_right, fg_color="transparent")
     frame_cp_aniso.pack(fill="x", **pad)
     cp_aniso_label = ctk.CTkLabel(frame_cp_aniso, text="Anisotropy (z/xy):")
     cp_aniso_label.pack(side="left", padx=(0, 8))
     cp_aniso_entry = ctk.CTkEntry(frame_cp_aniso, textvariable=anisotropy_var, width=70)
     cp_aniso_entry.pack(side="left")
-    frame_cp_params = ctk.CTkFrame(left_frame, fg_color="transparent")
+    frame_cp_params = ctk.CTkFrame(adv_right, fg_color="transparent")
     frame_cp_params.pack(fill="x", **pad)
     cp_minsize_label = ctk.CTkLabel(frame_cp_params, text="Min size (px):")
     cp_minsize_label.pack(side="left", padx=(0, 8))
@@ -542,13 +559,18 @@ def main():
     cp_flow_entry = ctk.CTkEntry(frame_cp_params, textvariable=cellpose_flow_threshold_var, width=50)
     cp_flow_entry.pack(side="left")
 
-    # --- Mode-dependent enable/disable ---
+    # --- Mode-dependent enable/disable & advanced toggle ---
     _default_label_color = ctk.ThemeManager.theme["CTkLabel"]["text_color"]
     _disabled_color = "gray40"
     _sections = {
         'detection': {
             'header': detection_header,
-            'widgets': [review_detection_cb, blob_fallback_cb],
+            'widgets': [review_detection_cb],
+            'labels': [],
+        },
+        'stardist': {
+            'header': stardist_header,
+            'widgets': [blob_fallback_cb],
             'labels': [],
         },
         'cellpose': {
@@ -560,6 +582,7 @@ def main():
                        cp_flow_label],
         },
     }
+    _advanced_mode_buttons = [stardist_rb, cellpose_rb]
 
     def _set_section_state(name, enabled):
         sec = _sections[name]
@@ -571,34 +594,12 @@ def main():
         for lbl in sec['labels']:
             lbl.configure(text_color=color)
 
-    # Advanced options widgets to hide/show
-    _advanced_widgets = {
-        'mode_buttons': [stardist_rb, cellpose_rb],
-        'sections': {
-            'detection': {
-                'header': detection_header,
-                'widgets': [review_detection_cb, blob_fallback_cb],
-                'labels': [],
-            },
-            'cellpose': {
-                'header': cellpose_header,
-                'widgets': [cp_model_entry, cp_model_browse, cp_do_3d_cb,
-                            cp_skip_review_cb, cp_aniso_entry, cp_minsize_entry,
-                            cp_flow_entry],
-                'labels': [cp_model_label, cp_aniso_label, cp_minsize_label,
-                           cp_flow_label],
-                'frames': [frame_cp_model, cp_env_hint, frame_cp_checks,
-                          frame_cp_aniso, frame_cp_params],
-            },
-        },
-    }
-
     def _toggle_advanced_options(*_args):
         """Show/hide advanced options based on checkbox state."""
         is_advanced = show_advanced.get()
 
         # Show/hide StarDist and Cellpose mode buttons
-        for btn in _advanced_widgets['mode_buttons']:
+        for btn in _advanced_mode_buttons:
             if is_advanced:
                 btn.pack(side="left", padx=(0, 10) if btn == stardist_rb else 0)
             else:
@@ -607,26 +608,12 @@ def main():
                 if mode_var.get() in ('stardist', 'cellpose'):
                     mode_var.set('blob')
 
-        # Show/hide detection and cellpose sections
+        # Show/hide the entire advanced container as a single unit.
+        # Use before= to keep it above the checkbox / run button.
         if is_advanced:
-            # Detection section
-            detection_header.pack(anchor="w", **pad)
-            frame_det.pack(fill="x", **pad)
-            # Cellpose section
-            cellpose_header.pack(anchor="w", **pad)
-            for frame in _advanced_widgets['sections']['cellpose']['frames']:
-                if frame == cp_env_hint:
-                    frame.pack(anchor="w", padx=(12, 0))
-                else:
-                    frame.pack(fill="x", **pad)
+            advanced_container.pack(fill="x", before=show_advanced_cb)
         else:
-            # Hide detection section
-            detection_header.pack_forget()
-            frame_det.pack_forget()
-            # Hide cellpose section
-            cellpose_header.pack_forget()
-            for frame in _advanced_widgets['sections']['cellpose']['frames']:
-                frame.pack_forget()
+            advanced_container.pack_forget()
 
         _apply_window_geometry()
 
@@ -638,8 +625,8 @@ def main():
         if is_advanced:
             detection_on = mode in ('blob', 'trackpy', 'stardist')
             _set_section_state('detection', detection_on)
-            if detection_on:
-                blob_fallback_cb.configure(state="normal" if mode == 'stardist' else "disabled")
+            stardist_on = mode == 'stardist'
+            _set_section_state('stardist', stardist_on)
             cellpose_on = mode == 'cellpose'
             _set_section_state('cellpose', cellpose_on)
             cp_env_hint.configure(text_color="gray" if cellpose_on else _disabled_color)
@@ -655,15 +642,18 @@ def main():
     # Status
     ctk.CTkLabel(left_frame, textvariable=status_var, text_color="gray").pack(**pad)
 
-    # Right-side expandable docs panel
-    docs_panel = ctk.CTkFrame(root_frame, width=430)
-    docs_panel.pack_propagate(False)
+    # Docs popout window (separate toplevel, does not affect main window width)
+    docs_window = ctk.CTkToplevel(app)
+    docs_window.title("Bead Analyzer – Docs")
+    docs_window.geometry(f"{DOCS_PANEL_WIDTH}x{HEIGHT_COMPACT}")
+    docs_window.withdraw()  # start hidden
+    docs_window.protocol("WM_DELETE_WINDOW", lambda: _toggle_docs_panel())
 
-    docs_header = ctk.CTkFrame(docs_panel, fg_color="transparent")
+    docs_header = ctk.CTkFrame(docs_window, fg_color="transparent")
     docs_header.pack(fill="x", padx=12, pady=(12, 8))
     ctk.CTkLabel(docs_header, text="Settings and Use Cases", font=ctk.CTkFont(size=16, weight="bold")).pack(anchor="w")
 
-    docs_tabs = ctk.CTkTabview(docs_panel)
+    docs_tabs = ctk.CTkTabview(docs_window)
     docs_tabs.pack(fill="both", expand=True, padx=12, pady=(0, 12))
     docs_tabs.add("Settings")
     docs_tabs.add("Use Cases")
@@ -684,7 +674,8 @@ def main():
         title_text = f"  - {title}" if is_child else title
         title_lbl = ctk.CTkLabel(section, text=title_text, font=ctk.CTkFont(weight="bold"), text_color=default_text_color)
         title_lbl.pack(anchor="w", padx=(18, 8) if is_child else (8, 8), pady=(8, 2))
-        body_wrap = 295 if is_child else 320
+        # Derive wraplength from panel width minus padding/indentation
+        body_wrap = (DOCS_PANEL_WIDTH - 135) if is_child else (DOCS_PANEL_WIDTH - 110)
         body_lbl = ctk.CTkLabel(section, text=body, justify="left", wraplength=body_wrap, text_color=default_text_color)
         body_lbl.pack(anchor="w", padx=(38, 12) if is_child else (26, 12), pady=(0, 8))
         divider = ctk.CTkFrame(section, height=1, fg_color=("gray78", "gray28"))
@@ -698,70 +689,233 @@ def main():
             "divider": divider,
         }
 
-    _add_setting_doc("section_file_results", "Input file and Results", "Select the image stack to analyze and where the results directory for outputs should be saved.")
-    _add_setting_doc("input_file", "Input file", "Path to the TIFF/OME-TIFF bead image stack to analyze.", is_child=True)
-    _add_setting_doc("output_dir", "Results directory", "Folder where CSV tables, figures, overlays, and config JSON files are saved.", is_child=True)
-    _add_setting_doc("section_experimental", "Experimental parameters", "Core microscope acquisition settings used to convert pixel measurements into physical units.")
-    _add_setting_doc("scale", "Scaling (um/pix): XY, Z", "Physical pixel size. Accurate values are critical for valid FWHM in microns.", is_child=True)
-    _add_setting_doc("channel", "Channel", "Selects image channel index used for detection and measurement.", is_child=True)
-    _add_setting_doc("section_detection_mode", "Bead detection", "Select which bead-detection backend finds candidate bead centers for downstream FWHM analysis.")
-    _add_setting_doc("mode_manual", "Manual", "User clicks beads manually; robust for edge cases and sparse/manual QA workflows.", is_child=True)
-    _add_setting_doc("mode_blob", "Blob", "Classical local-max detector; recommended default for small, bright beads.", is_child=True)
-    _add_setting_doc("mode_trackpy", "Trackpy", "Feature-based detector; often good with gradients or lower-SNR data.", is_child=True)
-    _add_setting_doc("mode_stardist", "StarDist (advanced)", "Deep-learning detector best when bead footprints are relatively large and separable.", is_child=True)
-    _add_setting_doc("mode_cellpose", "Cellpose (advanced)", "Deep-learning detector using your trained model; supports dense/complex scenes.", is_child=True)
-    _add_setting_doc("section_fitting", "Fitting method", "Controls how widths are estimated from profiles/volumes (parametric fit vs. prominence).")
-    _add_setting_doc("fit_1d", "1D Gaussian", "Fits Gaussian curves to 1D profiles (X, Y, Z) for sub-pixel FWHM estimates.", is_child=True)
-    _add_setting_doc("fit_3d", "3D Gaussian", "Fits a full 3D Gaussian model to bead volume; more complete but slower.", is_child=True)
-    _add_setting_doc("fit_both", "Both", "Runs both 1D and 3D fitting so you can compare methods.", is_child=True)
-    _add_setting_doc("fit_none", "No fit", "Prominence-only peak width measurement without Gaussian model fitting.", is_child=True)
-    _add_setting_doc("robust_fit", "Robust fit", "Huber-loss Gaussian fitting for better stability when profiles include outliers.", is_child=True)
-    _add_setting_doc("section_extraction_avg", "Extraction & averaging", "Controls local crop size and number of beads used in average outputs.")
-    _add_setting_doc("box_size", "Box size (px)", "Crop size around each bead for local profile extraction.", is_child=True)
-    _add_setting_doc("num_beads_avg", "Beads to avg (0=all)", "Number of beads to include in average bead/profile outputs; 0 uses all.", is_child=True)
-    _add_setting_doc("section_background", "Background subtraction", "Options to remove baseline/background signal before width measurement.")
-    _add_setting_doc("subtract_background", "Subtract global background", "Subtracts image-wide baseline before profile analysis.", is_child=True)
-    _add_setting_doc("local_background", "Local background", "Uses local neighborhood baseline; useful with non-uniform haze and uneven illumination.", is_child=True)
-    _add_setting_doc("section_quality_output", "Quality & output", "Options for diagnostics and automatic rejection of low-quality bead measurements.")
-    _add_setting_doc("save_diagnostics", "Save bead diagnostics", "Writes per-bead diagnostic figures for QA and troubleshooting.", is_child=True)
-    _add_setting_doc("qa_auto_reject", "Auto-reject low QA", "Automatically excludes beads below SNR/symmetry thresholds.", is_child=True)
-    _add_setting_doc("qa_snr", "QA min SNR", "Minimum signal-to-noise ratio to accept a bead (when auto-reject is enabled).", is_child=True)
-    _add_setting_doc("qa_sym", "QA min symmetry", "Minimum symmetry metric for bead acceptance (when auto-reject is enabled).", is_child=True)
-    _add_setting_doc("section_advanced", "Advanced options", "Detector-specific controls used primarily for automatic detection workflows.")
-    _add_setting_doc("show_advanced", "Show Advanced Options", "Toggles visibility of advanced detector/model controls in the GUI.", is_child=True)
-    _add_setting_doc("review_detection", "Review detection overlay", "Shows a visual overlay so you can validate automatic detections.", is_child=True)
-    _add_setting_doc("blob_fallback", "Blob fallback (StarDist)", "Fallback to classical blob detector if StarDist misses beads.", is_child=True)
-    _add_setting_doc("section_cellpose", "Cellpose options", "Model and inference controls specific to Cellpose detection mode.")
-    _add_setting_doc("cellpose_model", "Cellpose model file", "Path to trained Cellpose model used in Cellpose mode.", is_child=True)
-    _add_setting_doc("cellpose_native_3d", "Cellpose Native 3D", "Uses Cellpose 3D inference instead of tiled 2D inference.", is_child=True)
-    _add_setting_doc("cellpose_skip_review", "Cellpose Skip review", "Skips interactive mask review step for faster runs.", is_child=True)
-    _add_setting_doc("anisotropy", "Anisotropy (z/xy)", "Voxel anisotropy ratio for 3D Cellpose and depth-aware operations.", is_child=True)
-    _add_setting_doc("cellpose_min_size", "Cellpose Min size", "Minimum object size kept by Cellpose post-processing.", is_child=True)
-    _add_setting_doc("cellpose_flow_threshold", "Cellpose Flow threshold", "Flow error threshold controlling Cellpose mask acceptance.", is_child=True)
+    _add_setting_doc("section_file_results", "Input file and Results",
+        "Select the 3D bead image stack to analyze and choose where CSV tables, "
+        "figures, detection overlays, and settings JSON are saved.")
+    _add_setting_doc("input_file", "Input file",
+        "Path to a TIFF or OME-TIFF 3D bead stack (ZYX or CZYX). "
+        "Multi-channel files are supported; select the channel below.",
+        is_child=True)
+    _add_setting_doc("output_dir", "Results directory",
+        "Folder for all outputs: per-bead CSV, summary statistics, average-bead "
+        "profile plots, detection overlay images, and a copy of the run settings. "
+        "Defaults to the same folder as the input file.",
+        is_child=True)
+    _add_setting_doc("section_experimental", "Experimental parameters",
+        "Microscope acquisition metadata that converts pixel measurements into "
+        "physical units. Incorrect values will scale every FWHM result.")
+    _add_setting_doc("scale", "Scaling (um/pix): XY, Z",
+        "Lateral (XY) and axial (Z) pixel sizes in microns. Find these in your "
+        "microscope software (NIS-Elements, ZEN, FluoView) or via ImageJ "
+        "Image > Show Info. Typical values: 0.065\u20130.26 um for XY, 0.1\u20132.0 um for Z.",
+        is_child=True)
+    _add_setting_doc("channel", "Channel",
+        "Zero-based channel index for multi-channel (CZYX) stacks. "
+        "The dropdown auto-updates when you select an input file. "
+        "For single-channel stacks, leave at 0.",
+        is_child=True)
+    _add_setting_doc("section_detection_mode", "Bead detection",
+        "Choose how candidate bead centers are found before FWHM measurement. "
+        "Each mode suits different bead sizes, densities, and image quality.")
+    _add_setting_doc("mode_manual", "Manual",
+        "Right-click on beads interactively in a MIP window; press Escape when "
+        "done. Best for sparse slides, edge cases, or targeted re-analysis of "
+        "specific beads.",
+        is_child=True)
+    _add_setting_doc("mode_blob", "Blob",
+        "Gaussian-smoothed local-maximum detector. Fast, no dependencies beyond "
+        "scipy. Recommended default, especially for small beads (< 10 px diameter).",
+        is_child=True)
+    _add_setting_doc("mode_trackpy", "Trackpy",
+        "Bandpass filter + centroid refinement. Handles non-uniform backgrounds and "
+        "intensity gradients better than Blob. Good for low-NA objectives or dim beads.",
+        is_child=True)
+    _add_setting_doc("mode_stardist", "StarDist (advanced)",
+        "Pre-trained deep-learning star-convex polygon detector. Works best when "
+        "beads are ~15+ px in diameter and well-separated. Requires the stardist package.",
+        is_child=True)
+    _add_setting_doc("mode_cellpose", "Cellpose (advanced)",
+        "Instance segmentation with a user-trained Cellpose model. Handles dense "
+        "or overlapping bead fields where classical detectors struggle. Requires a "
+        "trained model file (see Cellpose options below).",
+        is_child=True)
+    _add_setting_doc("section_fitting", "Fitting method",
+        "Controls how FWHM is extracted from each bead. Gaussian fitting gives "
+        "sub-pixel precision; prominence mode is faster but less accurate.")
+    _add_setting_doc("fit_1d", "1D Gaussian",
+        "Fits a 1D Gaussian curve independently to X, Y, and Z intensity profiles "
+        "through the bead center. Fast and gives sub-pixel FWHM. Good default for "
+        "most use cases.",
+        is_child=True)
+    _add_setting_doc("fit_3d", "3D Gaussian",
+        "Fits an axis-aligned 3D Gaussian (separate sigma_x, sigma_y, sigma_z) to "
+        "the entire bead volume. More accurate for asymmetric PSFs but significantly "
+        "slower. No rotation parameters.",
+        is_child=True)
+    _add_setting_doc("fit_both", "Both",
+        "Runs 1D and 3D fitting sequentially. Use this to compare methods or for "
+        "thorough publication-quality analysis. Results for both appear in the CSV.",
+        is_child=True)
+    _add_setting_doc("fit_none", "No fit",
+        "Measures peak width at half-prominence using scipy peak finding. No Gaussian "
+        "model is fitted. Fastest option; useful for quick screening or when fitting "
+        "fails on noisy data.",
+        is_child=True)
+    _add_setting_doc("robust_fit", "Robust fit",
+        "Uses soft L1 (Huber-like) loss in the Gaussian curve_fit optimizer instead "
+        "of least-squares. Downweights outlier pixels from clipped edges or nearby "
+        "beads. Recommended ON unless beads are very clean and isolated.",
+        is_child=True)
+    _add_setting_doc("section_extraction_avg", "Extraction & averaging",
+        "Controls how bead sub-volumes are cropped and which beads contribute to "
+        "the averaged bead profile and composite outputs.")
+    _add_setting_doc("box_size", "Box size (px)",
+        "Full width of the square crop around each bead center (half_box = box_size // 2 "
+        "per side). Default 15 px. Increase for large beads or high-mag objectives; "
+        "decrease if beads are densely packed to avoid overlap.",
+        is_child=True)
+    _add_setting_doc("num_beads_avg", "Beads to avg (0=all)",
+        "Number of beads used for the average bead profile. Beads are ranked by "
+        "distance from the median Z-FWHM, so the most representative beads are "
+        "selected first. Set 0 to include all accepted beads. Default: 20.",
+        is_child=True)
+    _add_setting_doc("section_background", "Background subtraction",
+        "Remove baseline signal before measuring peak widths. Important when "
+        "background fluorescence would artificially broaden FWHM estimates.")
+    _add_setting_doc("subtract_background", "Subtract global background",
+        "Opens an interactive window where you draw an ROI over a background region. "
+        "The mean intensity of that ROI is subtracted from the entire stack before "
+        "analysis.",
+        is_child=True)
+    _add_setting_doc("local_background", "Local background",
+        "Estimates per-bead background from an annulus around each bead (inner radius = "
+        "half_box, outer radius = inner + half_box/2). The annulus median is subtracted "
+        "from each bead's profile. Best for light-sheet data or images with spatially "
+        "varying haze.",
+        is_child=True)
+    _add_setting_doc("section_quality_output", "Quality & output",
+        "Filter out poor measurements and save diagnostic plots for per-bead inspection.")
+    _add_setting_doc("save_diagnostics", "Save bead diagnostics",
+        "Writes a diagnostic figure for every bead to a bead_diagnostics/ subfolder. "
+        "Each figure shows the XYZ intensity profiles, fitted curves, and QA metrics. "
+        "Useful for troubleshooting unexpected FWHM values.",
+        is_child=True)
+    _add_setting_doc("qa_auto_reject", "Auto-reject low QA",
+        "Automatically excludes beads that fall below the SNR or symmetry thresholds. "
+        "Rejected beads are logged in the CSV but excluded from averages and summary "
+        "statistics.",
+        is_child=True)
+    _add_setting_doc("qa_snr", "QA min SNR",
+        "Minimum signal-to-noise ratio (peak intensity / noise floor) to accept a "
+        "bead. Default: 3.0. Increase if you see dim artifacts being counted as beads.",
+        is_child=True)
+    _add_setting_doc("qa_sym", "QA min symmetry",
+        "Z-profile symmetry score from 0 (asymmetric) to 1 (perfectly symmetric). "
+        "Computed as 1 minus the mean absolute difference between normalized left and "
+        "right halves of the Z profile. Default: 0.6.",
+        is_child=True)
+    _add_setting_doc("section_advanced", "Detection review",
+        "Visual verification of automatic detections before committing to full analysis.")
+    _add_setting_doc("show_advanced", "Show Advanced Options",
+        "Reveals StarDist/Cellpose mode buttons and their configuration sections. "
+        "Also widens the window to a two-column advanced layout.",
+        is_child=True)
+    _add_setting_doc("review_detection", "Review detection overlay",
+        "Displays a MIP with yellow circle markers at each detected bead center. "
+        "Press 'y' to accept and continue, or 'n' to abort and retry with different "
+        "settings.",
+        is_child=True)
+    _add_setting_doc("section_stardist", "StarDist options",
+        "Controls specific to the StarDist deep-learning detection mode.")
+    _add_setting_doc("blob_fallback", "Blob fallback",
+        "If StarDist detects zero beads, automatically falls back to the Blob "
+        "detector instead of aborting. Useful as a safety net when StarDist "
+        "confidence thresholds are too strict.",
+        is_child=True)
+    _add_setting_doc("section_cellpose", "Cellpose options",
+        "Model path, inference settings, and post-processing controls for "
+        "Cellpose-based bead segmentation.")
+    _add_setting_doc("cellpose_model", "Cellpose model file",
+        "Path to your trained Cellpose model. Alternatively, set the "
+        "FWHM_CELLPOSE_MODEL environment variable before launching. "
+        "See the README for training instructions using annotate_beads.py "
+        "and train_cellpose.py.",
+        is_child=True)
+    _add_setting_doc("cellpose_native_3d", "Cellpose Native 3D",
+        "Runs Cellpose on the full 3D volume instead of a 2D maximum intensity "
+        "projection. More accurate for overlapping beads in Z but significantly "
+        "slower and uses more memory.",
+        is_child=True)
+    _add_setting_doc("cellpose_skip_review", "Cellpose Skip review",
+        "Skips the interactive mask overlay window where you approve/reject "
+        "detected masks. Enable for batch runs or when you trust the model output.",
+        is_child=True)
+    _add_setting_doc("anisotropy", "Anisotropy (z/xy)",
+        "Ratio of Z step size to XY pixel size (e.g., 2.0/0.26 = 7.7). "
+        "Used by Cellpose 3D to rescale the volume so voxels appear isotropic. "
+        "Leave blank to let Cellpose use its default.",
+        is_child=True)
+    _add_setting_doc("cellpose_min_size", "Cellpose Min size",
+        "Minimum mask area in pixels. Masks smaller than this are discarded as "
+        "noise. Default: 3 px. Increase if you see many tiny false detections.",
+        is_child=True)
+    _add_setting_doc("cellpose_flow_threshold", "Cellpose Flow threshold",
+        "Maximum flow error for mask acceptance. Lower values are stricter and "
+        "reject more uncertain masks. Default: 0.4. Reduce to 0.2\u20130.3 for "
+        "cleaner but potentially fewer detections.",
+        is_child=True)
 
     for title, body in [
-        ("Fast default workflow", "Use Blob + 1D Gaussian, keep robust fit ON, set correct XY/Z scale, and run with default QA."),
-        ("High-quality publication workflow", "Use Both fitting modes, save diagnostics, and enable auto-reject with tuned QA thresholds."),
-        ("Difficult background workflow", "Enable local background, inspect detection overlay, and tighten QA thresholds."),
-        ("Cellpose workflow", "Enable Show Advanced Options, choose Cellpose mode, set model path, then tune min size and flow threshold."),
-        ("Small beads workflow", "Start with Blob or Trackpy instead of DL models when beads are only a few pixels wide."),
+        ("Fast screening",
+         "Blob detection + 1D Gaussian + Robust fit ON. Leave QA defaults as-is. "
+         "Good for a quick first look at a new bead slide. Takes seconds per stack."),
+        ("Publication-quality analysis",
+         "Use 'Both' fitting to get 1D and 3D FWHM side by side. Enable 'Save bead "
+         "diagnostics' to inspect every bead. Turn on 'Auto-reject low QA' with SNR >= 5 "
+         "and symmetry >= 0.7 for strict filtering. Report median and IQR from the CSV."),
+        ("Light-sheet / uneven background",
+         "Enable 'Local background' so each bead is baselined from its own annulus "
+         "neighborhood. Combine with 'Review detection overlay' to verify that the "
+         "detector is not picking up background blobs. Consider Trackpy if Blob "
+         "over-detects on intensity gradients."),
+        ("Dense / overlapping beads",
+         "Enable 'Show Advanced Options' and choose Cellpose with your trained model. "
+         "Set Min size to filter debris and lower Flow threshold (0.2\u20130.3) for stricter "
+         "mask quality. Use Native 3D if beads overlap in Z. Reduce box size if crops "
+         "overlap neighboring beads."),
+        ("Small sub-resolution beads",
+         "Use Blob or Trackpy (not StarDist/Cellpose, which need ~15+ px beads). "
+         "Keep box size small (7\u201311 px). 1D Gaussian is usually sufficient; 3D Gaussian "
+         "may fail to converge on very small volumes."),
+        ("Validating a new microscope",
+         "Image a standard bead slide (e.g., 100 nm TetraSpeck). Run 'Both' fitting with "
+         "'Save diagnostics' ON. Compare measured XY and Z FWHM against the theoretical "
+         "diffraction limit for your objective NA and wavelength."),
+        ("Batch processing (CLI)",
+         "Use the GUI for initial parameter tuning, then copy the saved "
+         "bead_analyzer_settings.json to script your CLI runs. The CLI supports "
+         "all GUI options plus additional controls (blob_sigma, z_range, detrending). "
+         "See CLI.md for details."),
     ]:
         box = ctk.CTkFrame(use_cases_scroll)
         box.pack(fill="x", padx=6, pady=(0, 10))
         ctk.CTkLabel(box, text=title, font=ctk.CTkFont(weight="bold")).pack(anchor="w", padx=8, pady=(8, 2))
-        ctk.CTkLabel(box, text=body, justify="left", wraplength=330).pack(anchor="w", padx=(26, 12), pady=(0, 8))
+        ctk.CTkLabel(box, text=body, justify="left", wraplength=DOCS_PANEL_WIDTH - 100).pack(anchor="w", padx=(26, 12), pady=(0, 8))
         ctk.CTkFrame(box, height=1, fg_color=("gray78", "gray28")).pack(fill="x", padx=(22, 14), pady=(0, 2))
 
     def _toggle_docs_panel():
         if docs_open_var.get():
-            docs_panel.pack_forget()
+            docs_window.withdraw()
             docs_open_var.set(False)
             docs_toggle_btn.configure(text="Docs ▸")
         else:
-            docs_panel.pack(side="right", fill="y", padx=(0, 8), pady=8)
+            app.update_idletasks()
+            x = app.winfo_x() + app.winfo_width() + 8
+            y = app.winfo_y()
+            docs_window.geometry(f"{DOCS_PANEL_WIDTH}x{app.winfo_height()}+{x}+{y}")
+            docs_window.deiconify()
             docs_open_var.set(True)
             docs_toggle_btn.configure(text="Docs ◂")
-        _apply_window_geometry()
 
     docs_toggle_btn.configure(command=_toggle_docs_panel)
 
@@ -822,12 +976,20 @@ def main():
             return
         docs_tabs.set("Settings")
         app.update_idletasks()
+        # _parent_canvas is a CustomTkinter internal; fall back gracefully if
+        # a future CTk version renames or removes it.
         canvas = getattr(settings_scroll, "_parent_canvas", None)
         anchor = setting_anchors[key]["section"]
         if canvas is None:
+            _highlight_setting(key)
             return
-        bbox = canvas.bbox("all")
+        try:
+            bbox = canvas.bbox("all")
+        except Exception:
+            _highlight_setting(key)
+            return
         if not bbox:
+            _highlight_setting(key)
             return
         content_h = max(1, bbox[3] - bbox[1])
         y_pos = max(0, anchor.winfo_y() - 8)
@@ -876,6 +1038,7 @@ def main():
     _bind_hover(qa_sym_entry, "qa_sym")
     _bind_hover(detection_header, "section_advanced")
     _bind_hover(review_detection_cb, "review_detection")
+    _bind_hover(stardist_header, "section_stardist")
     _bind_hover(blob_fallback_cb, "blob_fallback")
     _bind_hover(cellpose_header, "section_cellpose")
     _bind_hover(cp_model_label, "cellpose_model")
