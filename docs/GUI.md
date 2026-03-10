@@ -14,9 +14,9 @@ The GUI window title shows the version number (e.g., "Bead Analyzer v1.0.0").
 
 The GUI is organized into logical sections from top to bottom:
 
-### 1. File Selection
+### 1. Input file and Results
 - **Input file** – Browse for TIFF/OME-TIFF stack
-- **Output directory** – Where to save results (default: same directory as input file)
+- **Results directory** – Where to save results (default: same directory as input file)
 
 ### 2. Experimental Parameters
 - **Scale XY** (µm/pixel) – XY pixel size from your microscope metadata
@@ -53,11 +53,15 @@ Five radio buttons (default: Blob):
 - **QA min SNR** – Minimum signal-to-noise ratio (default: 3.0)
 - **QA min symmetry** – Minimum Z-profile symmetry 0-1 scale (default: 0.6)
 
-### 5. Detection Options (Enabled for Blob/Trackpy/StarDist only)
-- **Review detection overlay** – Show detected points before processing (press 'y' to accept, 'n' to abort)
-- **Blob fallback (StarDist)** – Fall back to blob detector if StarDist finds 0 beads (StarDist mode only)
+### 5. Show Advanced Options
+Check **Show Advanced Options** to reveal detector-specific controls. The window widens and an expandable area appears with a two-column layout:
 
-### 6. Cellpose Options (Enabled for Cellpose mode only)
+**Left column**
+- **Detection review** (enabled for Blob, Trackpy, StarDist): **Review detection overlay** – Show detected points before processing (press 'y' to accept, 'n' to abort)
+- **StarDist options** (enabled for StarDist only): **Blob fallback** – Fall back to blob detector if StarDist finds 0 beads
+
+**Right column**
+- **Cellpose options** (enabled for Cellpose only):
 - **Model file** – Path to trained Cellpose model (or set `FWHM_CELLPOSE_MODEL` environment variable)
 - **Native 3D** – Run full 3D Cellpose segmentation on entire stack (instead of 2D MIP)
 - **Skip review** – Skip the interactive mask review step
@@ -65,7 +69,7 @@ Five radio buttons (default: Blob):
 - **Min size (px)** – Minimum mask area in pixels (default: 3; increase to filter noise)
 - **Flow threshold** – Cellpose flow error threshold (default: 0.4; lower = stricter filtering)
 
-### 7. Run Button
+### 6. Run Button
 - **Analyze beads** – Start analysis in background thread
 - **Status** – Shows current progress (e.g., "Loading image...", "Detecting beads...", "Done")
 
@@ -74,16 +78,18 @@ Five radio buttons (default: Blob):
 ### Persistent Settings
 The GUI automatically saves your settings to `~/.bead_analyzer_last_settings.json` and restores them when you relaunch. This includes:
 - Last input file path
-- Output directory
+- Results directory
 - All parameter values (scales, mode, fitting options, QA thresholds, etc.)
 
 A copy is also saved to `<output_dir>/bead_analyzer_settings.json` for reproducibility.
 
+### Docs panel (Settings and Use Cases)
+Click **Docs ▸** to open a side panel with two tabs: **Settings** (descriptions of each control; hovering a control scrolls to and highlights its entry) and **Use Cases** (workflow suggestions for common scenarios). The panel can be closed to save space.
+
 ### Smart UI Updates
 - **Mode-dependent controls**: When you change detection mode, irrelevant options are automatically disabled/grayed out
-  - Detection Options section is only active for Blob/Trackpy/StarDist
-  - Cellpose Options section is only active for Cellpose mode
-  - Blob fallback checkbox is only active in StarDist mode
+  - Detection review and StarDist options are only active for Blob, Trackpy, or StarDist (StarDist options enabled only in StarDist mode)
+  - Cellpose options are only active for Cellpose mode
 - **Channel detection**: When you select an input file, the GUI automatically detects the number of channels and updates the channel dropdown
 
 ## Typical Workflow
@@ -173,7 +179,7 @@ Some modes open matplotlib windows for user input:
 ### GUI Issues
 - **"Select a valid input file"** – Use Browse button to pick a valid TIFF file
 - **"Scale XY and Z must be numbers"** – Enter numeric values (e.g., 0.26, not "0.26 µm")
-- **Window is too tall for my screen** – Minimum height is 1030 px; use a larger monitor or reduce OS scaling
+- **Window is too tall for my screen** – Compact height is 960 px; with "Show Advanced Options" checked it grows to 1270 px and the window widens (620 px → 900 px). Use a larger monitor or reduce OS scaling if needed.
 - **Settings not persisting** – Check write permissions for your home directory (`~/.bead_analyzer_last_settings.json`)
 
 ### Analysis Issues
