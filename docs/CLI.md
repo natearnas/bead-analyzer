@@ -58,7 +58,8 @@ Or: `python -m bead_analyzer.cli INPUT.tif ...`
 | `--save_diagnostics` | False | Save per-bead diagnostic plots to `bead_diagnostics/` |
 | `--local_background` | False | Local annulus background subtraction instead of global minimum |
 | `--robust_fit` | False | Robust Gaussian fitting (soft-L1 / Huber-like loss) |
-| `--num_beads_avg` | 20 | Beads for average (nearest to median Z-FWHM; 0 = all beads) |
+| `--num_beads_avg` | 20 | Beads for average (nearest to median Z-FWHM; minimum 1) |
+| `--sample_fraction` | 100 | Analyze this % of detected beads (1-100); random uniform sample; CSV/diagnostics only include analyzed beads |
 
 ## Mode-Specific Options
 
@@ -97,7 +98,7 @@ Or: `python -m bead_analyzer.cli INPUT.tif ...`
 - `--cellpose_do_3d` – Native Cellpose 3D segmentation on full stack
 - `--anisotropy` – Z/XY spacing ratio for 3D Cellpose (e.g. 1.0/0.51 = 1.96)
 - Best used when beads span approximately 15+ pixels in diameter.
-- `--num_beads_avg` – Beads for average (near median FWHM, 0 = all beads)
+- `--num_beads_avg` – Beads for average (near median FWHM, minimum 1)
 - `--z_range` – Z range `min max` (pixels)
 - `--z_analysis_margin` – Margin around peak for Z analysis
 - `--reject_outliers` – MAD multiplier for outlier rejection

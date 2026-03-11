@@ -127,7 +127,9 @@ def main():
     parser.add_argument("--anisotropy", type=float, default=None,
                         help="Cellpose 3D anisotropy ratio (z_spacing/xy_spacing)")
     parser.add_argument("--num_beads_avg", type=int, default=20,
-                        help="Beads for average (nearest to median Z-FWHM; 0 = all beads)")
+                        help="Beads for average (nearest to median Z-FWHM; minimum 1)")
+    parser.add_argument("--sample_fraction", type=float, default=100,
+                        help="Analyze this percentage of detected beads (1-100; default 100 = all)")
     parser.add_argument("--z_range", type=int, nargs=2, default=None)
     parser.add_argument("--z_analysis_margin", type=int, default=20)
     parser.add_argument("--reject_outliers", type=float, default=None)
@@ -156,6 +158,8 @@ def main():
 
     if args.input_file is None:
         parser.error("input_file is required (provide it directly or via --config)")
+
+    args.num_beads_avg = max(1, args.num_beads_avg)
 
     input_path = Path(args.input_file)
     if not input_path.exists():
@@ -198,6 +202,7 @@ def main():
         'output_dir': str(output_path.parent),
         'local_background': args.local_background,
         'robust_fit': args.robust_fit,
+        'sample_fraction': min(100, max(1, args.sample_fraction)),
     }
 
     rejected = []

@@ -41,17 +41,20 @@ Five radio buttons (default: Blob):
 
 **Robust fit (Huber loss)** – Checkbox (default: ON). Downweights outlier pixels in Gaussian fitting tails. Recommended for beads clipped by mask edges or contaminated by nearby beads.
 
+#### Extraction & averaging
+- **Box width (px)** – Pixels around bead center for Z-profile and crop (default: 15)
+
 #### Background Subtraction
-- **Subtract background** – Interactive ROI selection for global background subtraction
+- **Subtract background** – Interactive ROI: use the right mouse button to click and drag to draw a background region; close the window when done
 - **Local background** – Use annulus-based local background instead of global minimum (recommended for light-sheet)
 
 #### Quality & Output
 - **Save bead diagnostics** – Save per-bead diagnostic plots to `bead_diagnostics/` folder
-- **Auto-reject low QA** – Automatically exclude beads failing QA thresholds
-- **Box size (px)** – Pixels around bead center for Z-profile averaging (default: 15)
-- **Beads to avg (0=all)** – Number of detected beads for average bead (0 = all, N = closest to median Z-FWHM, default: 20)
+- **Percentage of beads to avg (1-100)** – Number of beads used for the average bead profile (minimum 1; default 20)
+- **Auto-reject low QA beads** – Automatically exclude beads failing QA thresholds
 - **QA min SNR** – Minimum signal-to-noise ratio (default: 3.0)
 - **QA min symmetry** – Minimum Z-profile symmetry 0-1 scale (default: 0.6)
+- **Analyze % of beads (1-100)** – Random uniform sample of detected beads to analyze (default: 100 = all). Lower values speed up runs; CSV and diagnostics only include the analyzed beads.
 
 ### 5. Show Advanced Options
 Check **Show Advanced Options** to reveal detector-specific controls. The window widens and an expandable area appears with a two-column layout:
@@ -139,7 +142,7 @@ Settings are automatically restored from your last session, so you only need to:
 - **Too few beads detected?** Try Review detection overlay, then lower blob threshold or adjust trackpy parameters via CLI
 - **Too many false detections?** Increase QA thresholds or enable Auto-reject
 - **Beads at image edges causing problems?** Enable "Robust fit" to handle edge clipping
-- **Want faster processing?** Use "No fit" mode (prominence-based width only)
+- **Want faster processing?** Use "No fit" mode (prominence-based width only), or set **Analyze % of beads** below 100 to analyze a random subset of detected beads
 
 ## Cellpose-Specific Setup
 
@@ -164,22 +167,45 @@ Some modes open matplotlib windows for user input:
 
 ### Manual Mode
 - **Bead selection window**: Right-click on each bead center, press Escape when done, close window to continue
+- The display is intentionally downsampled for speed. A note in the window states this; all analysis uses full-resolution data.
+- A controls key appears on the right side of the figure:
+  - **Left-click + drag**: pan
+  - **Mouse wheel**: zoom
+  - **Right-click**: add bead point
+  - **Esc**: finish selection
 
 ### Background Subtraction
-- **Background ROI window**: Right-click and drag to draw rectangle over background region, close window to continue
+- **Background ROI window**: Use the right mouse button to click and drag to draw a background region. Use the **mouse wheel** to zoom in/out centered on the cursor. Close the window to continue.
+- The ROI window displays a downsampled XY MIP for responsive interaction, but the selected rectangle is mapped back to full-resolution coordinates for subtraction.
+- A controls key appears on the right side of the figure:
+  - **Left-click + drag**: pan
+  - **Mouse wheel**: zoom
+  - **Right-click + drag**: draw ROI
 
 ### Detection Review (if enabled)
 - **Review window**: Press 'y' to accept detected points, 'n' to abort and retry with different settings
+- Review overlays use downsampled display for responsiveness; accepted detections are still processed in full resolution.
+- A controls key appears on the right side of the figure:
+  - **Left-click + drag**: pan
+  - **Mouse wheel**: zoom
+  - **Right-click**: no action
+  - **Y/N**: accept/abort
 
 ### Cellpose Review (if not skipped)
 - **Mask overlay window**: Press 'y' to proceed with detected masks, 'n' to abort
+- The review image is downsampled for speed; downstream measurements use full-resolution image data.
+- Uses the same right-side controls key as the detection review window (pan/zoom/right-click note + Y/N accept/abort).
+
+### Saved MIP Views
+- The analysis now saves an additional figure named `_MIP_views.png` containing **XY**, **XZ**, and **YZ** MIPs in one panel.
+- Axes are labeled in microns and rendered with physical aspect preserved (equal micron scaling in each panel).
 
 ## Troubleshooting
 
 ### GUI Issues
 - **"Select a valid input file"** – Use Browse button to pick a valid TIFF file
 - **"Scale XY and Z must be numbers"** – Enter numeric values (e.g., 0.26, not "0.26 µm")
-- **Window is too tall for my screen** – Compact height is 960 px; with "Show Advanced Options" checked it grows to 1270 px and the window widens (620 px → 900 px). Use a larger monitor or reduce OS scaling if needed.
+- **Window is too tall for my screen** – Compact height is 990 px; with "Show Advanced Options" checked it grows to 1210 px and the window widens. Use a larger monitor or reduce OS scaling if needed.
 - **Settings not persisting** – Check write permissions for your home directory (`~/.bead_analyzer_last_settings.json`)
 
 ### Analysis Issues

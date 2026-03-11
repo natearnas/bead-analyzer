@@ -12,6 +12,7 @@
 Unified FWHM analysis pipeline for manual, blob, trackpy, StarDist, and Cellpose modes.
 """
 
+import gc
 import numpy as np
 from pathlib import Path
 from scipy.ndimage import map_coordinates, zoom, shift, gaussian_filter
@@ -23,14 +24,43 @@ from matplotlib.colors import PowerNorm
 
 from .core import (
     RectangleDrawer,
+    INTERACTIVE_PREVIEW_NOTE,
+    add_interaction_key,
+    add_left_drag_pan,
+    add_mousewheel_zoom,
     calculate_fwhm_prominence,
     fit_gaussian_fwhm,
     fit_gaussian_3d,
+    make_preview_image,
+    preview_rect_to_full,
+    preview_to_full_point,
     reject_outliers_mad,
     filter_by_qa,
     gaussian_func,
 )
 from . import detectors
+
+
+def _figure_agg(figsize):
+    """Create a Figure with Agg canvas. Safe to use from a background thread (no Tk)."""
+    from matplotlib.figure import Figure
+    from matplotlib.backends.backend_agg import FigureCanvasAgg
+    fig = Figure(figsize=figsize)
+    FigureCanvasAgg(fig)
+    return fig
+
+
+def _savefig_close(fig, out_path, dpi=300, bbox_inches='tight'):
+    """Save an Agg figure and promptly release its memory."""
+    try:
+        fig.savefig(out_path, dpi=dpi, bbox_inches=bbox_inches)
+    finally:
+        try:
+            fig.clf()
+        except Exception:
+            pass
+        del fig
+        gc.collect()
 
 
 def _ensure_stack_3d(img, channel=0):
@@ -54,6 +84,30 @@ def _subtract_background(stack, rect_coords):
             stack[z] -= roi.mean()
     stack[stack < 0] = 0
     return stack
+
+
+def _interactive_background_roi(mip, title="Right-click and drag to draw a background region, then close", **imshow_kw):
+    """Show MIP, let user draw background ROI; return rect_coords or None. Run on main thread from GUI."""
+    preview_mip, ds_factor = make_preview_image(mip)
+    fig, ax = plt.subplots(figsize=(10, 8))
+    ax.imshow(preview_mip, cmap='gray', aspect='equal', **imshow_kw)
+    ax.set_title(title)
+    ax.text(
+        0.01, 0.01, INTERACTIVE_PREVIEW_NOTE,
+        transform=ax.transAxes, fontsize=9, color='white',
+        ha='left', va='bottom', bbox=dict(facecolor='black', alpha=0.55, pad=4)
+    )
+    add_mousewheel_zoom(ax)
+    add_left_drag_pan(ax)
+    add_interaction_key(fig, [
+        "Left-click + drag: Pan",
+        "Mouse wheel: Zoom in/out",
+        "Right-click + drag: Draw ROI",
+        "Close window: Continue",
+    ])
+    rd = RectangleDrawer(ax)
+    plt.show()
+    return preview_rect_to_full(rd.rect_coords, ds_factor, mip.shape)
 
 
 def _get_display_norm(mip, gamma=1.0, vmin_pct=None, vmax_pct=None):
@@ -177,14 +231,19 @@ def _save_bead_diagnostic(bead_id, volume, z_profile, x_profile, y_profile,
     """
     Generate and save a diagnostic plot for a single bead.
     
-    Shows Z/X/Y profiles with FWHM markers, XY/XZ/YZ projections,
-    and optionally Gaussian fits.
+    Uses Agg backend so this can run from a worker thread without creating GUI
+    windows or Tk icons. Shows Z/X/Y profiles with FWHM markers, XY/XZ/YZ
+    projections, and optionally Gaussian fits.
     """
+    from matplotlib.figure import Figure
+    from matplotlib.backends.backend_agg import FigureCanvasAgg
+
     output_dir = Path(output_dir)
     diag_dir = output_dir / "bead_diagnostics"
     diag_dir.mkdir(exist_ok=True)
-    
-    fig = plt.figure(figsize=(14, 10))
+
+    fig = Figure(figsize=(14, 10))
+    FigureCanvasAgg(fig)
     gs = fig.add_gridspec(3, 3, hspace=0.35, wspace=0.3)
     
     z_ax = np.arange(len(z_profile)) * scale_z
@@ -201,13 +260,16 @@ def _save_bead_diagnostic(bead_id, volume, z_profile, x_profile, y_profile,
         ax_z.axvline(z_ax[peak_idx], color='g', ls=':', alpha=0.5)
     if fit_gaussian and fwhm_result and 'fwhm_z_gauss_um' in fwhm_result and fwhm_result['fwhm_z_gauss_um']:
         try:
-            from scipy.optimize import curve_fit
+            from scipy.optimize import curve_fit, OptimizeWarning
+            import warnings
             pk = np.argmax(z_profile)
             hw = min(10, len(z_profile) // 2)
             xs = np.arange(max(0, pk - hw), min(len(z_profile), pk + hw + 1))
             ys = z_profile[xs]
             p0 = [ys.max() - ys.min(), pk, hw / 2, ys.min()]
-            popt, _ = curve_fit(gaussian_func, xs, ys, p0=p0, maxfev=2000)
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore", OptimizeWarning)
+                popt, _ = curve_fit(gaussian_func, xs, ys, p0=p0, maxfev=2000)
             fit_x = np.linspace(xs[0], xs[-1], 100)
             fit_y = gaussian_func(fit_x, *popt)
             ax_z.plot(fit_x * scale_z, fit_y, 'r-', lw=1, alpha=0.8, label='Gauss fit')
@@ -226,13 +288,16 @@ def _save_bead_diagnostic(bead_id, volume, z_profile, x_profile, y_profile,
         ax_x.axhline(half_max, color='r', ls='--', alpha=0.7, label=f'FWHM={fwhm_x:.2f}µm')
     if fit_gaussian and fwhm_result and 'fwhm_x_gauss_um' in fwhm_result and fwhm_result['fwhm_x_gauss_um']:
         try:
-            from scipy.optimize import curve_fit
+            from scipy.optimize import curve_fit, OptimizeWarning
+            import warnings
             pk = np.argmax(x_profile)
             hw = min(10, len(x_profile) // 2)
             xs = np.arange(max(0, pk - hw), min(len(x_profile), pk + hw + 1))
             ys = x_profile[xs]
             p0 = [ys.max() - ys.min(), pk, hw / 2, ys.min()]
-            popt, _ = curve_fit(gaussian_func, xs, ys, p0=p0, maxfev=2000)
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore", OptimizeWarning)
+                popt, _ = curve_fit(gaussian_func, xs, ys, p0=p0, maxfev=2000)
             fit_x = np.linspace(xs[0], xs[-1], 100)
             fit_y = gaussian_func(fit_x, *popt)
             ax_x.plot(fit_x * scale_xy, fit_y, 'r-', lw=1, alpha=0.8, label='Gauss fit')
@@ -251,13 +316,16 @@ def _save_bead_diagnostic(bead_id, volume, z_profile, x_profile, y_profile,
         ax_y.axhline(half_max, color='r', ls='--', alpha=0.7, label=f'FWHM={fwhm_y:.2f}µm')
     if fit_gaussian and fwhm_result and 'fwhm_y_gauss_um' in fwhm_result and fwhm_result['fwhm_y_gauss_um']:
         try:
-            from scipy.optimize import curve_fit
+            from scipy.optimize import curve_fit, OptimizeWarning
+            import warnings
             pk = np.argmax(y_profile)
             hw = min(10, len(y_profile) // 2)
             xs = np.arange(max(0, pk - hw), min(len(y_profile), pk + hw + 1))
             ys = y_profile[xs]
             p0 = [ys.max() - ys.min(), pk, hw / 2, ys.min()]
-            popt, _ = curve_fit(gaussian_func, xs, ys, p0=p0, maxfev=2000)
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore", OptimizeWarning)
+                popt, _ = curve_fit(gaussian_func, xs, ys, p0=p0, maxfev=2000)
             fit_x = np.linspace(xs[0], xs[-1], 100)
             fit_y = gaussian_func(fit_x, *popt)
             ax_y.plot(fit_x * scale_xy, fit_y, 'r-', lw=1, alpha=0.8, label='Gauss fit')
@@ -327,8 +395,7 @@ def _save_bead_diagnostic(bead_id, volume, z_profile, x_profile, y_profile,
                  bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.5))
     
     out_path = diag_dir / f"bead_{bead_id:04d}_diagnostic.png"
-    plt.savefig(out_path, dpi=150, bbox_inches='tight')
-    plt.close(fig)
+    _savefig_close(fig, out_path, dpi=150, bbox_inches='tight')
     return out_path
 
 
@@ -362,7 +429,7 @@ def run_manual(stack, scale_xy, scale_z, box_size=21, line_length=5.0,
                prominence_min=None, qa_min_snr=3.0, qa_min_symmetry=0.6,
                fit_3d=False, save_diagnostics=False, qa_auto_reject=False,
                output_dir=None, local_background=False, robust_fit=False,
-               **kwargs):
+               sample_fraction=100, **kwargs):
     """
     Manual mode: interactive click or load from points_file.
     Returns (results, bead_volumes, mip, profiles, rejected).
@@ -373,31 +440,67 @@ def run_manual(stack, scale_xy, scale_z, box_size=21, line_length=5.0,
     imshow_kw = _get_display_norm(mip, gamma, vmin_pct, vmax_pct)
 
     if subtract_background:
-        fig, ax = plt.subplots(figsize=(10, 8))
-        ax.imshow(mip, cmap='gray', aspect='equal', **imshow_kw)
-        ax.set_title("Draw rectangle over background, then close")
-        rd = RectangleDrawer(ax)
-        plt.show()
-        if rd.rect_coords:
-            stack = _subtract_background(stack, rd.rect_coords)
+        run_on_main = kwargs.get('run_on_main')
+        if callable(run_on_main):
+            rect_coords = run_on_main(_interactive_background_roi, mip, **imshow_kw)
+        else:
+            rect_coords = _interactive_background_roi(mip, **imshow_kw)
+        if rect_coords:
+            stack = _subtract_background(stack, rect_coords)
             mip = np.max(stack, axis=0)
+
+    def _manual_pick_points(mip_img, imshow_kwargs):
+        preview_mip, ds_factor = make_preview_image(mip_img)
+        fig, ax = plt.subplots(figsize=(10, 8))
+        ax.imshow(preview_mip, cmap='gray', **imshow_kwargs)
+        ax.set_title("Press Escape when done, and close the window.")
+        ax.text(
+            0.01, 0.01, INTERACTIVE_PREVIEW_NOTE,
+            transform=ax.transAxes, fontsize=9, color='white',
+            ha='left', va='bottom', bbox=dict(facecolor='black', alpha=0.55, pad=4)
+        )
+        add_mousewheel_zoom(ax)
+        add_left_drag_pan(ax)
+        add_interaction_key(fig, [
+            "Left-click + drag: Pan",
+            "Mouse wheel: Zoom in/out",
+            "Right-click: Add bead point",
+            "Esc: Finish selection, then close window",
+        ])
+        preview_pts = detectors.get_points_manual(preview_mip, ax, fig)
+        return [preview_to_full_point(x, y, ds_factor) for x, y in preview_pts]
 
     if points_file:
         pts = detectors.load_points_from_file(points_file)
     else:
-        fig, ax = plt.subplots(figsize=(10, 8))
-        ax.imshow(mip, cmap='gray', **imshow_kw)
-        ax.set_title("Right-click on beads. Press Escape when done.")
-        pts = detectors.get_points_manual(mip, ax, fig)
+        run_on_main = kwargs.get('run_on_main')
+        if callable(run_on_main):
+            pts = run_on_main(_manual_pick_points, mip, imshow_kw)
+        else:
+            pts = _manual_pick_points(mip, imshow_kw)
 
     if not pts:
         return [], [], mip, [], []
 
+    status_cb = kwargs.get('status_callback')
+    n_pts_orig = len(pts)
+    if sample_fraction is not None and sample_fraction < 100:
+        n_keep = max(1, int(n_pts_orig * (sample_fraction / 100)))
+        rng = np.random.default_rng()
+        idx = rng.choice(n_pts_orig, size=n_keep, replace=False)
+        pts = [pts[i] for i in idx]
+        if callable(status_cb):
+            status_cb(f"Sampling {n_keep} of {n_pts_orig} beads...")
+    n_pts = len(pts)
+    if callable(status_cb):
+        status_cb(f"Processing beads (0/{n_pts})...")
     half_box = box_size // 2
     results = []
     bead_volumes = []
     profiles = []
     for i, (x_c_orig, y_c_orig) in enumerate(pts):
+        if callable(status_cb):
+            status_cb(f"Processing beads ({i + 1}/{n_pts})...")
         x_c, y_c = _recenter_point(stack, x_c_orig, y_c_orig, half_box)
         x_c_int, y_c_int = int(round(x_c)), int(round(y_c))
         y1, y2 = max(0, y_c_int - half_box), min(stack.shape[1], y_c_int + half_box + 1)
@@ -491,14 +594,19 @@ def run_manual(stack, scale_xy, scale_z, box_size=21, line_length=5.0,
                 'volume': volume,
                 'fit_3d_result': fit_3d_result,
             })
-    
+
     rejected = []
+    if callable(status_cb):
+        status_cb("Preparing outputs...")
     if qa_auto_reject and results:
         results, rejected = filter_by_qa(results, qa_min_snr, qa_min_symmetry)
         bead_volumes, profiles = _filter_auxiliary_by_ids(results, bead_volumes, profiles)
     
     if save_diagnostics and output_dir and results:
-        for r in results:
+        n_res = len(results)
+        for idx, r in enumerate(results):
+            if callable(status_cb) and (idx % 50 == 0 or idx == n_res - 1):
+                status_cb(f"Saving diagnostics ({idx + 1}/{n_res})...")
             p = next((pr for pr in profiles if pr.get('id') == r.get('id')), None)
             if p is not None:
                 _save_bead_diagnostic(
@@ -524,7 +632,7 @@ def run_stardist(stack, scale_xy, scale_z, box_size=7, line_length=5.0,
                  trackpy_separation=None,
                  detector_backend='stardist',
                  output_dir=None, local_background=False, robust_fit=False,
-                 **kwargs):
+                 sample_fraction=100, **kwargs):
     """
     StarDist mode: automatic detection or points_file override.
     Returns (results, bead_volumes, mip, profiles, rejected).
@@ -533,13 +641,13 @@ def run_stardist(stack, scale_xy, scale_z, box_size=7, line_length=5.0,
     stack = stack.astype(np.float32)
     mip = np.max(stack, axis=0)
     if subtract_background:
-        fig, ax = plt.subplots(figsize=(10, 8))
-        ax.imshow(mip, cmap='gray')
-        ax.set_title("Draw rectangle over background, then close")
-        rd = RectangleDrawer(ax)
-        plt.show()
-        if rd.rect_coords:
-            stack = _subtract_background(stack, rd.rect_coords)
+        run_on_main = kwargs.get('run_on_main')
+        if callable(run_on_main):
+            rect_coords = run_on_main(_interactive_background_roi, mip)
+        else:
+            rect_coords = _interactive_background_roi(mip)
+        if rect_coords:
+            stack = _subtract_background(stack, rect_coords)
             mip = np.max(stack, axis=0)
     if detector_backend == 'blob':
         pts = detectors.get_points_blob(
@@ -580,15 +688,32 @@ def run_stardist(stack, scale_xy, scale_z, box_size=7, line_length=5.0,
             'blob': "Blob Detection Review",
             'trackpy': "Trackpy Detection Review",
         }.get(detector_backend, "Detection Review")
+        status_cb = kwargs.get('status_callback')
+        if callable(status_cb):
+            status_cb("Reviewing detection – press Y/N in the review window")
         if not detectors.review_detection_points(mip, pts, title=title):
             return [], [], mip, [], []
     if not pts:
         return [], [], mip, [], []
+    status_cb = kwargs.get('status_callback')
+    n_pts_orig = len(pts)
+    if sample_fraction is not None and sample_fraction < 100:
+        n_keep = max(1, int(n_pts_orig * (sample_fraction / 100)))
+        rng = np.random.default_rng()
+        idx = rng.choice(n_pts_orig, size=n_keep, replace=False)
+        pts = [pts[i] for i in idx]
+        if callable(status_cb):
+            status_cb(f"Sampling {n_keep} of {n_pts_orig} beads...")
+    n_pts = len(pts)
+    if callable(status_cb):
+        status_cb(f"Processing beads (0/{n_pts})...")
     half_box = box_size // 2
     results = []
     bead_volumes = []
     profiles = []
     for i, (x_c_raw, y_c_raw) in enumerate(pts):
+        if callable(status_cb):
+            status_cb(f"Processing beads ({i + 1}/{n_pts})...")
         x_c, y_c = _recenter_point(stack, x_c_raw, y_c_raw, half_box)
         x_c_int, y_c_int = int(round(x_c)), int(round(y_c))
         y1, y2 = max(0, y_c_int - half_box), min(stack.shape[1], y_c_int + half_box + 1)
@@ -677,12 +802,17 @@ def run_stardist(stack, scale_xy, scale_z, box_size=7, line_length=5.0,
             })
 
     rejected = []
+    if callable(status_cb):
+        status_cb("Preparing outputs...")
     if qa_auto_reject and results:
         results, rejected = filter_by_qa(results, qa_min_snr, qa_min_symmetry)
         bead_volumes, profiles = _filter_auxiliary_by_ids(results, bead_volumes, profiles)
 
     if save_diagnostics and output_dir and results:
-        for r in results:
+        n_res = len(results)
+        for idx, r in enumerate(results):
+            if callable(status_cb) and (idx % 50 == 0 or idx == n_res - 1):
+                status_cb(f"Saving diagnostics ({idx + 1}/{n_res})...")
             p = next((pr for pr in profiles if pr.get('id') == r.get('id')), None)
             if p:
                 fwhm_for_diag = {
@@ -732,7 +862,7 @@ def run_cellpose(stack, scale_xy, scale_z, model_path, box_size=15, line_length=
                  skip_review=False, qa_min_snr=3.0, qa_min_symmetry=0.6,
                  fit_3d=False, save_diagnostics=False, qa_auto_reject=False,
                  output_dir=None, local_background=False, robust_fit=False,
-                 **kwargs):
+                 sample_fraction=100, **kwargs):
     """
     Cellpose mode: custom model, tiled inference, review step.
     Returns (results, bead_volumes, mip, bead_log, profiles, rejected).
@@ -741,14 +871,15 @@ def run_cellpose(stack, scale_xy, scale_z, model_path, box_size=15, line_length=
     stack = stack.astype(np.float32)
     mip = np.max(stack, axis=0)
     if subtract_background:
-        fig, ax = plt.subplots(figsize=(10, 8))
+        run_on_main = kwargs.get('run_on_main')
         norm = PowerNorm(gamma=kwargs.get('gamma', 1.0)) if kwargs.get('gamma', 1.0) != 1 else None
-        ax.imshow(mip, cmap='gray', aspect='equal', norm=norm)
-        ax.set_title("Draw rectangle over background, then close")
-        rd = RectangleDrawer(ax)
-        plt.show()
-        if rd.rect_coords:
-            stack = _subtract_background(stack, rd.rect_coords)
+        roi_kw = {'norm': norm} if norm is not None else {}
+        if callable(run_on_main):
+            rect_coords = run_on_main(_interactive_background_roi, mip, **roi_kw)
+        else:
+            rect_coords = _interactive_background_roi(mip, **roi_kw)
+        if rect_coords:
+            stack = _subtract_background(stack, rect_coords)
             mip = np.max(stack, axis=0)
     if cellpose_do_3d:
         pts, masks = detectors.get_points_cellpose_3d(
@@ -768,9 +899,21 @@ def run_cellpose(stack, scale_xy, scale_z, model_path, box_size=15, line_length=
         )
     if not pts:
         return [], [], mip, [], [], []
+    status_cb = kwargs.get('status_callback')
     review_mask = np.max(masks, axis=0) if (masks is not None and getattr(masks, "ndim", 0) == 3) else masks
+    if not skip_review:
+        if callable(status_cb):
+            status_cb("Reviewing detection – press Y/N in the review window")
     if not skip_review and not detectors.review_detection_cellpose(mip, review_mask):
         return [], [], mip, [], [], []
+    n_pts_orig = len(pts)
+    if sample_fraction is not None and sample_fraction < 100:
+        n_keep = max(1, int(n_pts_orig * (sample_fraction / 100)))
+        rng = np.random.default_rng()
+        idx = rng.choice(n_pts_orig, size=n_keep, replace=False)
+        pts = [pts[i] for i in idx]
+        if callable(status_cb):
+            status_cb(f"Sampling {n_keep} of {n_pts_orig} beads...")
     img_h, img_w, z_d = stack.shape[1], stack.shape[2], stack.shape[0]
     z_search_min, z_search_max = (z_range[0], min(z_range[1], z_d)) if z_range else (0, z_d)
     half_box = box_size // 2
@@ -778,7 +921,12 @@ def run_cellpose(stack, scale_xy, scale_z, model_path, box_size=15, line_length=
     bead_volumes = []
     bead_log = []
     profiles = []
+    n_pts = len(pts)
+    if callable(status_cb):
+        status_cb(f"Processing beads (0/{n_pts})...")
     for i, p in enumerate(pts):
+        if callable(status_cb):
+            status_cb(f"Processing beads ({i + 1}/{n_pts})...")
         if len(p) == 3:
             x_c, y_c, z_hint = p
             z_hint = int(round(z_hint))
@@ -898,7 +1046,9 @@ def run_cellpose(stack, scale_xy, scale_z, model_path, box_size=15, line_length=
             'volume': volume,
             'fit_3d_result': fit_3d_result,
         })
-    
+
+    if callable(status_cb):
+        status_cb("Preparing outputs...")
     if reject_outliers and results:
         accepted_before = {r['id'] for r in results}
         results = reject_outliers_mad(results, data_key='fwhm_z_gauss', m=reject_outliers)
@@ -920,7 +1070,10 @@ def run_cellpose(stack, scale_xy, scale_z, model_path, box_size=15, line_length=
         bead_volumes, profiles = _filter_auxiliary_by_ids(results, bead_volumes, profiles)
     
     if save_diagnostics and output_dir and results:
-        for r in results:
+        n_res = len(results)
+        for idx, r in enumerate(results):
+            if callable(status_cb) and (idx % 50 == 0 or idx == n_res - 1):
+                status_cb(f"Saving diagnostics ({idx + 1}/{n_res})...")
             p = next((pr for pr in profiles if pr['id'] == r['id']), None)
             if p:
                 fwhm_for_diag = {
@@ -945,6 +1098,7 @@ def write_outputs(results, bead_volumes, mip, file_path, mode, scale_xy, scale_z
                   upsample_factor=4, no_plots=False, num_beads_avg=20,
                   bead_log=None, na=None, fluorophore=None, gamma=1.0,
                   qa_min_snr=3.0, qa_min_symmetry=0.6, rejected=None,
+                  stack=None,
                   profiles=None):
     """Write CSV, TXT summary, average bead, heatmap, detection overview, and summary figure."""
     file_path = Path(file_path)
@@ -967,7 +1121,15 @@ def write_outputs(results, bead_volumes, mip, file_path, mode, scale_xy, scale_z
         print(f"Rejected beads saved to: {rej_path}")
 
     if not no_plots and mip is not None:
-        _save_detection_overview(results, rejected, mip, file_path, gamma=gamma)
+        try:
+            _save_detection_overview(results, rejected, mip, file_path, gamma=gamma)
+        except Exception as e:
+            print(f"WARNING: Detection overview could not be saved: {e}")
+        if stack is not None:
+            try:
+                _save_mip_views(stack, file_path, scale_xy, scale_z)
+            except Exception as e:
+                print(f"WARNING: MIP views figure could not be saved: {e}")
 
     if not results:
         print("No beads passed analysis. No reports written.")
@@ -1053,16 +1215,26 @@ def write_outputs(results, bead_volumes, mip, file_path, mode, scale_xy, scale_z
             valid_vols = sel_vols
     avg_vol = None
     if valid_vols and not no_plots:
-        avg_vol = _save_average_bead(valid_vols, file_path, scale_xy, scale_z, upsample_factor)
+        try:
+            avg_vol = _save_average_bead(valid_vols, file_path, scale_xy, scale_z, upsample_factor)
+        except Exception as e:
+            print(f"WARNING: Average bead outputs could not be saved: {e}")
+            avg_vol = None
 
     # --- Heatmap: all modes ---
     fwhm_heatmap_col = next((k for k in ['fwhm_z_gauss_um', 'fwhm_z_gauss'] if k in df.columns), None)
     if fwhm_heatmap_col and 'district_row' in df.columns and not no_plots:
-        _save_heatmap(results, mip, file_path, df, gamma=gamma, fwhm_col=fwhm_heatmap_col)
+        try:
+            _save_heatmap(results, mip, file_path, df, gamma=gamma, fwhm_col=fwhm_heatmap_col)
+        except Exception as e:
+            print(f"WARNING: Heatmap could not be saved: {e}")
 
     # --- Summary figure ---
     if avg_vol is not None and not no_plots and profiles:
-        _save_summary_figure(avg_vol, profiles, file_path, scale_xy, scale_z, upsample_factor)
+        try:
+            _save_summary_figure(avg_vol, profiles, file_path, scale_xy, scale_z, upsample_factor)
+        except Exception as e:
+            print(f"WARNING: Summary figure could not be saved: {e}")
 
 
 def _save_average_bead(volumes, file_path, scale_xy, scale_z, upsample_factor=4):
@@ -1081,16 +1253,16 @@ def _save_average_bead(volumes, file_path, scale_xy, scale_z, upsample_factor=4)
     out_tif = file_path.with_name(f"{file_path.stem}_average_bead_stack.tif")
     tifffile.imwrite(out_tif, avg, imagej=True, resolution=(1 / new_xy, 1 / new_xy), metadata={'unit': 'um', 'spacing': new_z})
     print(f"Average bead saved to: {out_tif}")
-    fig, axes = plt.subplots(1, 3, figsize=(15, 5))
+    fig = _figure_agg((15, 5))
+    axes = [fig.add_subplot(1, 3, i + 1) for i in range(3)]
     z_m, y_m, x_m = (d // 2 for d in avg.shape)
     axes[0].imshow(avg[z_m, :, :], cmap='viridis', aspect=1)
     axes[1].imshow(avg[:, y_m, :], cmap='viridis', aspect=new_z / new_xy)
     axes[2].imshow(avg[:, :, x_m], cmap='viridis', aspect=new_z / new_xy)
     axes[0].set_title('XY'); axes[1].set_title('XZ'); axes[2].set_title('YZ')
-    plt.tight_layout()
+    fig.tight_layout()
     out_png = file_path.with_name(f"{file_path.stem}_average_bead_plot.png")
-    plt.savefig(out_png, dpi=300, bbox_inches='tight')
-    plt.close()
+    _savefig_close(fig, out_png, dpi=300, bbox_inches='tight')
     print(f"Plot saved to: {out_png}")
     return avg
 
@@ -1101,33 +1273,40 @@ def _save_heatmap(results, mip, file_path, df, gamma=1.0, fwhm_col='fwhm_z_gauss
         return
     if fwhm_col not in df.columns or not df[fwhm_col].notna().any():
         return
-    from matplotlib.colors import PowerNorm
     stats = df.groupby(['district_row', 'district_col'])[fwhm_col].agg(['mean', 'std', 'count']).reset_index()
     heatmap = np.full((3, 3), np.nan)
     for _, row in stats.iterrows():
         heatmap[int(row['district_row']), int(row['district_col'])] = row['mean']
-    fig, ax = plt.subplots(figsize=(12, 10))
-    norm = PowerNorm(gamma=gamma) if gamma != 1 else None
-    ax.imshow(mip, cmap='gray', norm=norm)
+    fig = _figure_agg((7, 6))
+    ax = fig.add_subplot(111)
     valid = heatmap[~np.isnan(heatmap)]
     if len(valid) > 0:
-        im = ax.imshow(heatmap, cmap='viridis', alpha=0.5, vmin=np.nanmin(valid), vmax=np.nanmax(valid))
+        im = ax.imshow(heatmap, cmap='viridis', interpolation='nearest',
+                       vmin=np.nanmin(valid), vmax=np.nanmax(valid))
         fig.colorbar(im, ax=ax, label='Mean FWHM (µm)')
     for _, row in stats.iterrows():
         r, c = int(row['district_row']), int(row['district_col'])
-        ax.text(c * mip.shape[1] / 3 + mip.shape[1] / 6, r * mip.shape[0] / 3 + mip.shape[0] / 6,
+        ax.text(c, r,
                 f"{row['mean']:.2f} ± {row['std']:.2f}\n(n={row['count']})",
-                color='white', ha='center', va='center', fontsize=10, bbox=dict(facecolor='black', alpha=0.5))
+                color='white', ha='center', va='center', fontsize=10,
+                bbox=dict(facecolor='black', alpha=0.5))
+    ax.set_title('District Mean FWHM Heatmap')
+    ax.set_xlabel('District column')
+    ax.set_ylabel('District row')
+    ax.set_xticks(range(3))
+    ax.set_yticks(range(3))
+    ax.set_xlim(-0.5, 2.5)
+    ax.set_ylim(2.5, -0.5)
     out_path = file_path.with_name(f"{file_path.stem}_FWHM_heatmap.png")
-    plt.savefig(out_path, dpi=300, bbox_inches='tight')
-    plt.close()
+    _savefig_close(fig, out_path, dpi=300, bbox_inches='tight')
     print(f"Heatmap saved to: {out_path}")
 
 
 def _save_detection_overview(results, rejected, mip, file_path, gamma=1.0):
     """Save MIP with detected bead locations marked: green=accepted, red=rejected."""
     from matplotlib.colors import PowerNorm
-    fig, ax = plt.subplots(figsize=(12, 10))
+    fig = _figure_agg((12, 10))
+    ax = fig.add_subplot(111)
     norm = PowerNorm(gamma=gamma) if gamma != 1 else None
     ax.imshow(mip, cmap='gray', norm=norm)
     if results:
@@ -1151,9 +1330,46 @@ def _save_detection_overview(results, rejected, mip, file_path, gamma=1.0):
     ax.set_xlabel('X (px)')
     ax.set_ylabel('Y (px)')
     out_path = file_path.with_name(f"{file_path.stem}_detection_overview.png")
-    plt.savefig(out_path, dpi=300, bbox_inches='tight')
-    plt.close()
+    _savefig_close(fig, out_path, dpi=300, bbox_inches='tight')
     print(f"Detection overview saved to: {out_path}")
+
+
+def _save_mip_views(stack, file_path, scale_xy, scale_z):
+    """Save XY/XZ/YZ maximum intensity projections in one physically scaled figure."""
+    if stack is None or getattr(stack, "ndim", 0) != 3:
+        return
+    xy_mip = np.max(stack, axis=0)
+    xz_mip = np.max(stack, axis=1)
+    yz_mip = np.max(stack, axis=2)
+
+    z_um = stack.shape[0] * scale_z
+    y_um = stack.shape[1] * scale_xy
+    x_um = stack.shape[2] * scale_xy
+
+    fig = _figure_agg((16, 5))
+    ax_xy = fig.add_subplot(1, 3, 1)
+    ax_xz = fig.add_subplot(1, 3, 2)
+    ax_yz = fig.add_subplot(1, 3, 3)
+
+    ax_xy.imshow(xy_mip, cmap='gray', extent=[0, x_um, y_um, 0], aspect='equal')
+    ax_xy.set_title('XY MIP')
+    ax_xy.set_xlabel('X (µm)')
+    ax_xy.set_ylabel('Y (µm)')
+
+    ax_xz.imshow(xz_mip, cmap='gray', extent=[0, x_um, z_um, 0], aspect='equal')
+    ax_xz.set_title('XZ MIP')
+    ax_xz.set_xlabel('X (µm)')
+    ax_xz.set_ylabel('Z (µm)')
+
+    ax_yz.imshow(yz_mip, cmap='gray', extent=[0, y_um, z_um, 0], aspect='equal')
+    ax_yz.set_title('YZ MIP')
+    ax_yz.set_xlabel('Y (µm)')
+    ax_yz.set_ylabel('Z (µm)')
+
+    fig.tight_layout()
+    out_path = file_path.with_name(f"{file_path.stem}_MIP_views.png")
+    _savefig_close(fig, out_path, dpi=300, bbox_inches='tight')
+    print(f"MIP views saved to: {out_path}")
 
 
 def _add_scalebar(ax, scale_um_per_px, img_size_px, orientation='horizontal', color='white'):
@@ -1188,7 +1404,7 @@ def _save_summary_figure(avg_vol, profiles, file_path, scale_xy, scale_z, upsamp
     nz, ny, nx = avg_vol.shape
     z_m, y_m, x_m = nz // 2, ny // 2, nx // 2
 
-    fig = plt.figure(figsize=(16, 10))
+    fig = _figure_agg((16, 10))
     gs = fig.add_gridspec(2, 3, hspace=0.3, wspace=0.3)
 
     # Top row: projections with scale bars
@@ -1266,6 +1482,5 @@ def _save_summary_figure(avg_vol, profiles, file_path, scale_xy, scale_z, upsamp
         ax.legend(loc='upper right', fontsize=8)
 
     out_path = file_path.with_name(f"{file_path.stem}_summary_figure.png")
-    plt.savefig(out_path, dpi=300, bbox_inches='tight')
-    plt.close()
+    _savefig_close(fig, out_path, dpi=300, bbox_inches='tight')
     print(f"Summary figure saved to: {out_path}")

@@ -17,7 +17,15 @@ from pathlib import Path
 import pandas as pd
 from scipy.ndimage import gaussian_filter, maximum_filter
 
-from .core import MultiPointClicker
+from .core import (
+    INTERACTIVE_PREVIEW_NOTE,
+    MultiPointClicker,
+    add_interaction_key,
+    add_left_drag_pan,
+    add_mousewheel_zoom,
+    full_to_preview_point,
+    make_preview_image,
+)
 
 # Optional: StarDist
 try:
@@ -43,6 +51,39 @@ try:
     TRACKPY_AVAILABLE = True
 except ImportError:
     TRACKPY_AVAILABLE = False
+
+# When set by the GUI, review windows run on the main thread to avoid Matplotlib warnings.
+_main_thread_runner = None
+REVIEW_DISPLAY_GAMMA = 0.75
+
+
+def _raise_figure_window(fig):
+    """Bring the figure window to the front so the user sees it (TkAgg backend)."""
+    try:
+        win = fig.canvas.manager.window
+        win.attributes('-topmost', True)
+        win.lift()
+        win.focus_force()
+        win.after(300, lambda: win.attributes('-topmost', False))
+    except Exception:
+        pass
+
+
+def _gamma_brighten_for_display(img, gamma=REVIEW_DISPLAY_GAMMA):
+    """Return a display-only gamma-adjusted image (analysis data is unchanged)."""
+    arr = np.asarray(img, dtype=np.float32)
+    finite = np.isfinite(arr)
+    if not np.any(finite):
+        return np.zeros_like(arr, dtype=np.float32)
+    vals = arr[finite]
+    lo = float(np.percentile(vals, 1.0))
+    hi = float(np.percentile(vals, 99.8))
+    if hi <= lo:
+        hi = float(np.max(vals))
+    if hi <= lo:
+        return np.zeros_like(arr, dtype=np.float32)
+    norm = np.clip((arr - lo) / (hi - lo), 0.0, 1.0)
+    return np.power(norm, float(gamma)).astype(np.float32, copy=False)
 
 
 def get_points_manual(mip_image, ax, fig):
@@ -306,14 +347,37 @@ def review_detection_cellpose(mip_image, masks):
     """Show Cellpose detection overlay; user presses 'y' to accept or 'n' to abort."""
     if not CELLPOSE_AVAILABLE:
         return False
+    if _main_thread_runner is not None:
+        return _main_thread_runner(_review_detection_cellpose_impl, mip_image, masks)
+    return _review_detection_cellpose_impl(mip_image, masks)
+
+
+def _review_detection_cellpose_impl(mip_image, masks):
+    """Actual Cellpose review UI (run on main thread when called from GUI)."""
     import matplotlib.pyplot as plt
+    preview_mip, ds_factor = make_preview_image(mip_image)
+    preview_masks = masks[::ds_factor, ::ds_factor] if ds_factor > 1 else masks
     fig, ax = plt.subplots(figsize=(12, 10))
+    display_mip = _gamma_brighten_for_display(preview_mip, REVIEW_DISPLAY_GAMMA)
     outlines = cellpose_plot.mask_overlay(
-        mip_image, masks,
-        colors=np.array([[255, 0, 0]] * int(masks.max()))
+        display_mip, preview_masks,
+        colors=np.array([[255, 0, 0]] * int(preview_masks.max()))
     )
     ax.imshow(outlines)
     ax.set_title("Review Detection. Press 'y' to accept, 'n' to abort.")
+    ax.text(
+        0.01, 0.01, INTERACTIVE_PREVIEW_NOTE,
+        transform=ax.transAxes, fontsize=9, color='white',
+        ha='left', va='bottom', bbox=dict(facecolor='black', alpha=0.55, pad=4)
+    )
+    add_mousewheel_zoom(ax)
+    add_left_drag_pan(ax)
+    add_interaction_key(fig, [
+        "Left-click + drag: Pan",
+        "Mouse wheel: Zoom in/out",
+        "Right-click: No action",
+        "Y: Accept, N: Abort",
+    ])
     proceed = False
 
     def on_key(event):
@@ -328,6 +392,7 @@ def review_detection_cellpose(mip_image, masks):
             plt.close(fig)
 
     fig.canvas.mpl_connect('key_press_event', on_key)
+    _raise_figure_window(fig)
     plt.show()
     return proceed
 
@@ -336,13 +401,36 @@ def review_detection_points(mip_image, points, title="Review Detection"):
     """Show point overlay; user presses 'y' to accept or 'n' to abort."""
     if not points:
         return False
+    if _main_thread_runner is not None:
+        return _main_thread_runner(_review_detection_points_impl, mip_image, points, title)
+    return _review_detection_points_impl(mip_image, points, title)
+
+
+def _review_detection_points_impl(mip_image, points, title="Review Detection"):
+    """Actual points review UI (run on main thread when called from GUI)."""
     import matplotlib.pyplot as plt
+    preview_mip, ds_factor = make_preview_image(mip_image)
     fig, ax = plt.subplots(figsize=(12, 10))
-    ax.imshow(mip_image, cmap='gray')
-    xs = [p[0] for p in points]
-    ys = [p[1] for p in points]
+    display_mip = _gamma_brighten_for_display(preview_mip, REVIEW_DISPLAY_GAMMA)
+    ax.imshow(display_mip, cmap='gray', vmin=0.0, vmax=1.0)
+    scaled_pts = [full_to_preview_point(p[0], p[1], ds_factor) for p in points]
+    xs = [p[0] for p in scaled_pts]
+    ys = [p[1] for p in scaled_pts]
     ax.scatter(xs, ys, s=40, facecolors='none', edgecolors='yellow')
     ax.set_title(f"{title}. Press 'y' to accept, 'n' to abort.")
+    ax.text(
+        0.01, 0.01, INTERACTIVE_PREVIEW_NOTE,
+        transform=ax.transAxes, fontsize=9, color='white',
+        ha='left', va='bottom', bbox=dict(facecolor='black', alpha=0.55, pad=4)
+    )
+    add_mousewheel_zoom(ax)
+    add_left_drag_pan(ax)
+    add_interaction_key(fig, [
+        "Left-click + drag: Pan",
+        "Mouse wheel: Zoom in/out",
+        "Right-click: No action",
+        "Y: Accept, N: Abort",
+    ])
     proceed = False
 
     def on_key(event):
@@ -357,5 +445,6 @@ def review_detection_points(mip_image, points, title="Review Detection"):
             plt.close(fig)
 
     fig.canvas.mpl_connect('key_press_event', on_key)
+    _raise_figure_window(fig)
     plt.show()
     return proceed

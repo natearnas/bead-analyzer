@@ -13,12 +13,13 @@ CustomTkinter GUI for FWHM bead analysis.
 """
 
 import json
+import sys
 import threading
 from pathlib import Path
 
 try:
     import customtkinter as ctk
-    from tkinter import filedialog, messagebox
+    from tkinter import PhotoImage, filedialog, messagebox
 except ImportError:
     ctk = None
 
@@ -31,8 +32,8 @@ def _run_analysis(input_file, output_dir, mode, scale_xy, scale_z, na, fluoropho
                   cellpose_do_3d=False, anisotropy=None, use_blob_fallback=False,
                   local_background=False, robust_fit=False,
                   cellpose_min_size=3, cellpose_flow_threshold=0.4,
-                  num_beads_avg=20):
-    """Run analysis in background thread."""
+                  num_beads_avg=20, sample_fraction=100, run_on_main=None):
+    """Run analysis in background thread. run_on_main: callable to run interactive matplotlib on main thread."""
     import tifffile
     from . import analysis
 
@@ -58,6 +59,9 @@ def _run_analysis(input_file, output_dir, mode, scale_xy, scale_z, na, fluoropho
             'use_blob_fallback': use_blob_fallback,
             'local_background': local_background,
             'robust_fit': robust_fit,
+            'status_callback': status_callback,
+            'run_on_main': run_on_main,
+            'sample_fraction': sample_fraction,
         }
         rejected = []
         if mode == 'manual':
@@ -97,6 +101,7 @@ def _run_analysis(input_file, output_dir, mode, scale_xy, scale_z, na, fluoropho
             results, bead_volumes, mip, output_path, mode,
             scale_xy, scale_z, bead_log=bead_log, na=na, fluorophore=fluorophore,
             qa_min_snr=qa_min_snr, qa_min_symmetry=qa_min_symmetry, rejected=rejected,
+            stack=stack,
             profiles=profiles,
             num_beads_avg=num_beads_avg,
         )
@@ -111,22 +116,89 @@ def main():
         print("Install customtkinter: pip install customtkinter")
         return 1
 
+    # Use TkAgg so review windows appear (not Agg which is non-interactive)
+    import matplotlib
+    matplotlib.use('TkAgg')
+
     from . import __version__
+
+    if sys.platform == "win32":
+        try:
+            import ctypes
+            ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(
+                "ArnasTechnologies.BeadAnalyzer"
+            )
+        except Exception:
+            pass
 
     ctk.set_appearance_mode("dark")
     ctk.set_default_color_theme("blue")
     app = ctk.CTk()
     app.title(f"Bead Analyzer v{__version__}")
+
+    def _set_app_icon():
+        assets_dir = Path(__file__).resolve().parent / "assets"
+        ico_path = assets_dir / "app_icon.ico"
+        png_path = assets_dir / "app_icon.png"
+
+        try:
+            if ico_path.exists():
+                app.iconbitmap(str(ico_path))
+        except Exception:
+            pass
+
+        try:
+            if png_path.exists():
+                # Keep a reference so Tk does not release the icon image.
+                app._icon_photo = PhotoImage(file=str(png_path))
+                app.iconphoto(True, app._icon_photo)
+        except Exception:
+            pass
+
+    _set_app_icon()
     # Window size is controlled dynamically by advanced/docs toggles.
     # Values are empirical: measured to fit all widgets without scrolling.
     # Adjust if widgets are added/removed.
-    HEIGHT_COMPACT = 960       # core controls only
-    HEIGHT_EXPANDED = 1100     # core + two-column advanced options visible
+    HEIGHT_COMPACT = 1040      # core controls only
+    HEIGHT_EXPANDED = 1260     # core + two-column advanced options visible
     WIDTH_BASE = 420           # controls panel only (compact)
     WIDTH_ADVANCED = 550       # controls panel when advanced options visible (wider)
     DOCS_PANEL_WIDTH = 820
-    app.geometry(f"{WIDTH_BASE}x{HEIGHT_COMPACT}")
+    launch_x = max((app.winfo_screenwidth() - WIDTH_BASE) // 2, 0)
+    launch_y = 10
+    app.geometry(f"{WIDTH_BASE}x{HEIGHT_COMPACT}+{launch_x}+{launch_y}")
     app.minsize(550, HEIGHT_COMPACT)
+
+    # Run Matplotlib review windows on the main thread to avoid "outside of the main thread" warnings
+    from . import detectors
+    def _run_on_main_and_wait(fn, *args, **kwargs):
+        result = [None]
+        exc = [None]
+        done = threading.Event()
+        def on_main():
+            try:
+                result[0] = fn(*args, **kwargs)
+            except Exception as e:
+                exc[0] = e
+            finally:
+                # Run GC and Tk update on main thread so any Tk/Matplotlib cleanup
+                # (e.g. from closed review window) runs here, avoiding
+                # "main thread is not in main loop" in worker thread.
+                try:
+                    import matplotlib.pyplot as plt
+                    plt.close('all')
+                except Exception:
+                    pass
+                import gc
+                gc.collect()
+                app.update_idletasks()
+                done.set()
+        app.after(0, on_main)
+        done.wait()
+        if exc[0]:
+            raise exc[0]
+        return result[0]
+    detectors._main_thread_runner = _run_on_main_and_wait
 
     # Persistent settings path (user home directory)
     _settings_file = Path.home() / '.bead_analyzer_last_settings.json'
@@ -186,7 +258,13 @@ def main():
     robust_fit_var = ctk.BooleanVar(value=prev.get('robust_fit', True))
     cellpose_min_size_var = ctk.StringVar(value=str(prev.get('cellpose_min_size', '3')))
     cellpose_flow_threshold_var = ctk.StringVar(value=str(prev.get('cellpose_flow_threshold', '0.4')))
-    num_beads_avg_var = ctk.StringVar(value=str(prev.get('num_beads_avg', '20')))
+    prev_num_beads_avg = prev.get('num_beads_avg', 20)
+    try:
+        prev_num_beads_avg = max(1, int(prev_num_beads_avg))
+    except (TypeError, ValueError):
+        prev_num_beads_avg = 20
+    num_beads_avg_var = ctk.StringVar(value=str(prev_num_beads_avg))
+    sample_fraction_var = ctk.StringVar(value=str(prev.get('sample_fraction', '100')))
     docs_open_var = ctk.BooleanVar(value=False)
 
     def browse_input():
@@ -258,17 +336,21 @@ def main():
             aniso = float(anisotropy_var.get()) if anisotropy_var.get().strip() else None
             cp_min_size = int(cellpose_min_size_var.get())
             cp_flow = float(cellpose_flow_threshold_var.get())
-            n_avg = int(num_beads_avg_var.get())
+            n_avg = max(1, int(num_beads_avg_var.get()))
+            sample_frac = float(sample_fraction_var.get())
         except ValueError:
-            messagebox.showerror("Error", "Scale XY, Z, channel, QA, box size, anisotropy, num beads avg, and Cellpose params must be valid numbers.")
+            messagebox.showerror("Error", "Scale XY, Z, channel, QA, box width, anisotropy, num beads avg, sample fraction, and Cellpose params must be valid numbers.")
             return
+        num_beads_avg_var.set(str(n_avg))
         out = output_dir.get() or str(Path(inp).parent)
         na_val = float(na_var.get()) if na_var.get().strip() else None
         fluor = fluorophore_var.get().strip() or None
 
         def status(msg):
-            status_var.set(msg)
-            app.update_idletasks()
+            def update():
+                status_var.set(msg)
+                app.update_idletasks()
+            app.after(0, update)
 
         cellpose_path = (cellpose_model_var.get().strip() or None) if mode_var.get() == 'cellpose' else None
         fit_mode = fit_mode_var.get()
@@ -276,28 +358,33 @@ def main():
         fit_3d = fit_mode in ('3d', 'both')
 
         def run_thread():
-            _run_analysis(
-                inp, out, mode_var.get(), sx, sz, na_val, fluor,
-                bx, fit_gaussian, subtract_background.get(),
-                status,
-                cellpose_model_path=cellpose_path,
-                channel=ch,
-                review_detection=review_detection_var.get(),
-                skip_cellpose_review=skip_cellpose_review_var.get(),
-                qa_min_snr=qa_snr,
-                qa_min_symmetry=qa_sym,
-                fit_3d=fit_3d,
-                save_diagnostics=save_diagnostics_var.get(),
-                qa_auto_reject=qa_auto_reject_var.get(),
-                cellpose_do_3d=cellpose_do_3d_var.get(),
-                anisotropy=aniso,
-                use_blob_fallback=blob_fallback_var.get(),
-                local_background=local_background_var.get(),
-                robust_fit=robust_fit_var.get(),
-                cellpose_min_size=cp_min_size,
-                cellpose_flow_threshold=cp_flow,
-                num_beads_avg=n_avg,
-            )
+            try:
+                _run_analysis(
+                    inp, out, mode_var.get(), sx, sz, na_val, fluor,
+                    bx, fit_gaussian, subtract_background.get(),
+                    status,
+                    cellpose_model_path=cellpose_path,
+                    channel=ch,
+                    review_detection=review_detection_var.get(),
+                    skip_cellpose_review=skip_cellpose_review_var.get(),
+                    qa_min_snr=qa_snr,
+                    qa_min_symmetry=qa_sym,
+                    fit_3d=fit_3d,
+                    save_diagnostics=save_diagnostics_var.get(),
+                    qa_auto_reject=qa_auto_reject_var.get(),
+                    cellpose_do_3d=cellpose_do_3d_var.get(),
+                    anisotropy=aniso,
+                    use_blob_fallback=blob_fallback_var.get(),
+                    local_background=local_background_var.get(),
+                    robust_fit=robust_fit_var.get(),
+                    cellpose_min_size=cp_min_size,
+                    cellpose_flow_threshold=cp_flow,
+                    num_beads_avg=n_avg,
+                    sample_fraction=min(100, max(1, sample_frac)),
+                    run_on_main=_run_on_main_and_wait,
+                )
+            finally:
+                app.after(0, lambda: analyze_btn.configure(state="normal"))
 
         settings = {
             'input_file': inp,
@@ -325,6 +412,7 @@ def main():
             'cellpose_min_size': cp_min_size,
             'cellpose_flow_threshold': cp_flow,
             'num_beads_avg': n_avg,
+            'sample_fraction': min(100, max(1, sample_frac)),
             'show_advanced': show_advanced.get(),
         }
         if cellpose_path:
@@ -344,6 +432,7 @@ def main():
             pass
 
         status_var.set("Running...")
+        analyze_btn.configure(state="disabled")
         threading.Thread(target=run_thread, daemon=True).start()
 
     def _apply_window_geometry():
@@ -456,18 +545,14 @@ def main():
     extraction_avg_label = ctk.CTkLabel(left_frame, text="Extraction & averaging", font=sub)
     extraction_avg_label.pack(anchor="w", padx=12, pady=(4, 2))
 
-    # General numeric params
+    # General numeric params (Extraction & averaging: Box width only)
     frame_gen = ctk.CTkFrame(left_frame, fg_color="transparent")
     frame_gen.pack(fill="x", **pad)
     box_entry_var = ctk.StringVar(value=str(prev.get('box_size', '15')))
-    box_size_label = ctk.CTkLabel(frame_gen, text="Box size (px):")
+    box_size_label = ctk.CTkLabel(frame_gen, text="Box width (px):")
     box_size_label.pack(side="left", padx=(0, 8))
     box_entry = ctk.CTkEntry(frame_gen, textvariable=box_entry_var, width=50)
-    box_entry.pack(side="left", padx=(0, 16))
-    num_beads_label = ctk.CTkLabel(frame_gen, text="Beads to avg (0=all):")
-    num_beads_label.pack(side="left", padx=(0, 8))
-    num_beads_entry = ctk.CTkEntry(frame_gen, textvariable=num_beads_avg_var, width=50)
-    num_beads_entry.pack(side="left")
+    box_entry.pack(side="left")
 
     # Background
     background_label = ctk.CTkLabel(left_frame, text="Background subtraction", font=sub)
@@ -486,7 +571,13 @@ def main():
     frame_qa_cb.pack(fill="x", **pad)
     save_diag_cb = ctk.CTkCheckBox(frame_qa_cb, text="Save bead diagnostics", variable=save_diagnostics_var)
     save_diag_cb.pack(side="left", padx=(0, 16))
-    qa_reject_cb = ctk.CTkCheckBox(frame_qa_cb, text="Auto-reject low QA", variable=qa_auto_reject_var)
+    sample_fraction_label = ctk.CTkLabel(frame_qa_cb, text="Analyze % of beads (1-100):")
+    sample_fraction_label.pack(side="left", padx=(0, 8))
+    sample_fraction_entry = ctk.CTkEntry(frame_qa_cb, textvariable=sample_fraction_var, width=50)
+    sample_fraction_entry.pack(side="left")
+    frame_qa_reject = ctk.CTkFrame(left_frame, fg_color="transparent")
+    frame_qa_reject.pack(fill="x", **pad)
+    qa_reject_cb = ctk.CTkCheckBox(frame_qa_reject, text="Auto-reject low QA beads", variable=qa_auto_reject_var)
     qa_reject_cb.pack(side="left")
     frame_qa = ctk.CTkFrame(left_frame, fg_color="transparent")
     frame_qa.pack(fill="x", **pad)
@@ -499,7 +590,14 @@ def main():
     qa_sym_entry = ctk.CTkEntry(frame_qa, textvariable=qa_sym_var, width=60)
     qa_sym_entry.pack(side="left")
 
-    # --- Advanced options container (show/hide as a single unit); wider 2-column layout ---
+    frame_sample = ctk.CTkFrame(left_frame, fg_color="transparent")
+    frame_sample.pack(fill="x", **pad)
+    num_beads_label = ctk.CTkLabel(frame_sample, text="Percentage of beads to avg (1-100):")
+    num_beads_label.pack(side="left", padx=(0, 8))
+    num_beads_entry = ctk.CTkEntry(frame_sample, textvariable=num_beads_avg_var, width=50)
+    num_beads_entry.pack(side="left")
+
+    # --- Advanced options container
     advanced_container = ctk.CTkFrame(left_frame, fg_color="transparent")
     advanced_container.pack(fill="x")
 
@@ -524,7 +622,7 @@ def main():
     blob_fallback_cb.pack(side="left")
 
     # Right column: Cellpose options
-    cellpose_header = ctk.CTkLabel(adv_right, text="Cellpose options", font=ctk.CTkFont(weight="bold"))
+    cellpose_header = ctk.CTkLabel(adv_right, text="Cellpose options (requires model file)", font=ctk.CTkFont(weight="bold"))
     cellpose_header.pack(anchor="w", **pad)
     frame_cp_model = ctk.CTkFrame(adv_right, fg_color="transparent")
     frame_cp_model.pack(fill="x", **pad)
@@ -769,21 +867,22 @@ def main():
     _add_setting_doc("section_extraction_avg", "Extraction & averaging",
         "Controls how bead sub-volumes are cropped and which beads contribute to "
         "the averaged bead profile and composite outputs.")
-    _add_setting_doc("box_size", "Box size (px)",
+    _add_setting_doc("box_size", "Box width (px)",
         "Full width of the square crop around each bead center (half_box = box_size // 2 "
         "per side). Default 15 px. Increase for large beads or high-mag objectives; "
         "decrease if beads are densely packed to avoid overlap.",
         is_child=True)
-    _add_setting_doc("num_beads_avg", "Beads to avg (0=all)",
+    _add_setting_doc("num_beads_avg", "Percentage of beads to avg (1-100)",
         "Number of beads used for the average bead profile. Beads are ranked by "
         "distance from the median Z-FWHM, so the most representative beads are "
-        "selected first. Set 0 to include all accepted beads. Default: 20.",
+        "selected first. Minimum: 1. Default: 20.",
         is_child=True)
     _add_setting_doc("section_background", "Background subtraction",
         "Remove baseline signal before measuring peak widths. Important when "
         "background fluorescence would artificially broaden FWHM estimates.")
     _add_setting_doc("subtract_background", "Subtract global background",
         "Opens an interactive window where you draw an ROI over a background region. "
+        "Use the right mouse button to click and drag to draw a background region. "
         "The mean intensity of that ROI is subtracted from the entire stack before "
         "analysis.",
         is_child=True)
@@ -800,7 +899,7 @@ def main():
         "Each figure shows the XYZ intensity profiles, fitted curves, and QA metrics. "
         "Useful for troubleshooting unexpected FWHM values.",
         is_child=True)
-    _add_setting_doc("qa_auto_reject", "Auto-reject low QA",
+    _add_setting_doc("qa_auto_reject", "Auto-reject low QA beads",
         "Automatically excludes beads that fall below the SNR or symmetry thresholds. "
         "Rejected beads are logged in the CSV but excluded from averages and summary "
         "statistics.",
@@ -813,6 +912,11 @@ def main():
         "Z-profile symmetry score from 0 (asymmetric) to 1 (perfectly symmetric). "
         "Computed as 1 minus the mean absolute difference between normalized left and "
         "right halves of the Z profile. Default: 0.6.",
+        is_child=True)
+    _add_setting_doc("sample_fraction", "Analyze % of beads (1-100)",
+        "Random uniform sample of detected beads to analyze. 100 = analyze all. "
+        "Lower values (e.g. 20 or 50) speed up runs while giving a representative sample. "
+        "CSV and bead diagnostics only include the analyzed (sampled) beads.",
         is_child=True)
     _add_setting_doc("section_advanced", "Detection review",
         "Visual verification of automatic detections before committing to full analysis.")
@@ -832,7 +936,7 @@ def main():
         "detector instead of aborting. Useful as a safety net when StarDist "
         "confidence thresholds are too strict.",
         is_child=True)
-    _add_setting_doc("section_cellpose", "Cellpose options",
+    _add_setting_doc("section_cellpose", "Cellpose options (requires model file)",
         "Model path, inference settings, and post-processing controls for "
         "Cellpose-based bead segmentation.")
     _add_setting_doc("cellpose_model", "Cellpose model file",
@@ -871,7 +975,7 @@ def main():
          "Good for a quick first look at a new bead slide. Takes seconds per stack."),
         ("Publication-quality analysis",
          "Use 'Both' fitting to get 1D and 3D FWHM side by side. Enable 'Save bead "
-         "diagnostics' to inspect every bead. Turn on 'Auto-reject low QA' with SNR >= 5 "
+         "diagnostics' to inspect every bead. Turn on 'Auto-reject low QA beads' with SNR >= 5 "
          "and symmetry >= 0.7 for strict filtering. Report median and IQR from the CSV."),
         ("Light-sheet / uneven background",
          "Enable 'Local background' so each bead is baselined from its own annulus "
@@ -881,11 +985,11 @@ def main():
         ("Dense / overlapping beads",
          "Enable 'Show Advanced Options' and choose Cellpose with your trained model. "
          "Set Min size to filter debris and lower Flow threshold (0.2\u20130.3) for stricter "
-         "mask quality. Use Native 3D if beads overlap in Z. Reduce box size if crops "
+         "mask quality. Use Native 3D if beads overlap in Z. Reduce box width if crops "
          "overlap neighboring beads."),
         ("Small sub-resolution beads",
          "Use Blob or Trackpy (not StarDist/Cellpose, which need ~15+ px beads). "
-         "Keep box size small (7\u201311 px). 1D Gaussian is usually sufficient; 3D Gaussian "
+         "Keep box width small (7\u201311 px). 1D Gaussian is usually sufficient; 3D Gaussian "
          "may fail to converge on very small volumes."),
         ("Validating a new microscope",
          "Image a standard bead slide (e.g., 100 nm TetraSpeck). Run 'Both' fitting with "
@@ -1036,6 +1140,8 @@ def main():
     _bind_hover(qa_snr_entry, "qa_snr")
     _bind_hover(qa_sym_label, "qa_sym")
     _bind_hover(qa_sym_entry, "qa_sym")
+    _bind_hover(sample_fraction_label, "sample_fraction")
+    _bind_hover(sample_fraction_entry, "sample_fraction")
     _bind_hover(detection_header, "section_advanced")
     _bind_hover(review_detection_cb, "review_detection")
     _bind_hover(stardist_header, "section_stardist")

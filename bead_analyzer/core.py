@@ -13,10 +13,83 @@ Shared FWHM calculation logic and matplotlib-based UI helpers.
 """
 
 import numpy as np
+import textwrap
 from scipy.signal import find_peaks
 from scipy.optimize import curve_fit
 from scipy.ndimage import gaussian_filter1d
 from matplotlib.widgets import RectangleSelector
+
+INTERACTIVE_PREVIEW_NOTE = (
+    "The lower resolution image used here is to facilitate speed; "
+    "full resolution is used for analyses."
+)
+
+
+def add_interaction_key(fig, key_lines):
+    """Render a compact controls key on the right side of an interactive figure."""
+    fig.subplots_adjust(right=0.70)
+    key_ax = fig.add_axes([0.72, 0.14, 0.26, 0.72])
+    key_ax.axis("off")
+    key_ax.set_title("Controls", fontsize=10, pad=6)
+    wrapped = []
+    for line in key_lines:
+        parts = textwrap.wrap(str(line), width=34, break_long_words=False)
+        wrapped.extend(parts if parts else [""])
+    key_ax.text(
+        0.0, 1.0, "\n".join(wrapped),
+        transform=key_ax.transAxes,
+        va="top", ha="left", fontsize=9, wrap=True,
+    )
+
+
+def get_preview_downsample_factor(image_2d, target_max_dim=1400):
+    """Pick an integer downsample factor for interactive display."""
+    if image_2d is None or getattr(image_2d, "ndim", 0) != 2:
+        return 1
+    max_dim = int(max(image_2d.shape))
+    if max_dim <= target_max_dim:
+        return 1
+    return max(1, int(np.ceil(max_dim / float(target_max_dim))))
+
+
+def make_preview_image(image_2d, downsample_factor=None):
+    """Return (preview_image, downsample_factor) using stride sampling."""
+    if image_2d is None or getattr(image_2d, "ndim", 0) != 2:
+        return image_2d, 1
+    f = int(downsample_factor or get_preview_downsample_factor(image_2d))
+    if f <= 1:
+        return image_2d, 1
+    return image_2d[::f, ::f], f
+
+
+def preview_to_full_point(x, y, factor):
+    """Map preview-space point to full-resolution coordinates."""
+    f = max(1, int(factor))
+    return float(x) * f, float(y) * f
+
+
+def full_to_preview_point(x, y, factor):
+    """Map full-resolution point to preview-space coordinates."""
+    f = max(1, int(factor))
+    return float(x) / f, float(y) / f
+
+
+def preview_rect_to_full(rect_coords, factor, full_shape):
+    """Map preview rectangle (x1,y1,x2,y2) to full-resolution bounds."""
+    if not rect_coords:
+        return None
+    h, w = int(full_shape[0]), int(full_shape[1])
+    f = max(1, int(factor))
+    x1, y1, x2, y2 = rect_coords
+    x1f = int(np.clip(round(min(x1, x2) * f), 0, w - 1))
+    x2f = int(np.clip(round(max(x1, x2) * f), 0, w - 1))
+    y1f = int(np.clip(round(min(y1, y2) * f), 0, h - 1))
+    y2f = int(np.clip(round(max(y1, y2) * f), 0, h - 1))
+    if x2f <= x1f:
+        x2f = min(w - 1, x1f + 1)
+    if y2f <= y1f:
+        y2f = min(h - 1, y1f + 1)
+    return x1f, y1f, x2f, y2f
 
 
 class RectangleDrawer:
@@ -28,13 +101,156 @@ class RectangleDrawer:
         self.rs = RectangleSelector(
             ax, self.onselect,
             button=[3], minspanx=5, minspany=5,
-            spancoords='pixels', interactive=True
+            spancoords='pixels', interactive=True, useblit=True
         )
 
     def onselect(self, eclick, erelease):
         x1, y1 = int(eclick.xdata), int(eclick.ydata)
         x2, y2 = int(erelease.xdata), int(erelease.ydata)
         self.rect_coords = (x1, y1, x2, y2)
+
+
+def add_mousewheel_zoom(ax, extent=None):
+    """Connect scroll event to zoom in/out centered on the mouse cursor. Clamps to image extent."""
+    if extent is None and ax.images:
+        extent = ax.images[0].get_extent()
+    if extent is None:
+        return
+
+    left, right, bottom, top = extent
+    x_min, x_max = min(left, right), max(left, right)
+    y_min, y_max = min(bottom, top), max(bottom, top)
+
+    x_total = max(1e-9, x_max - x_min)
+    y_total = max(1e-9, y_max - y_min)
+    min_span_ratio = 0.02
+    min_x_span = max(4.0, x_total * min_span_ratio)
+    min_y_span = max(4.0, y_total * min_span_ratio)
+    zoom_factor = 1.2
+
+    def on_scroll(event):
+        if event.inaxes != ax:
+            return
+        if event.xdata is None or event.ydata is None:
+            return
+        # event.step: positive = scroll up = zoom in; event.button: 'up' = zoom in
+        zoom_in = getattr(event, 'step', 0) > 0 or getattr(event, 'button', None) == 'up'
+        x, y = event.xdata, event.ydata
+        xlim = ax.get_xlim()
+        ylim = ax.get_ylim()
+        x_desc = xlim[0] > xlim[1]
+        y_desc = ylim[0] > ylim[1]
+
+        x0, x1 = min(xlim), max(xlim)
+        y0, y1 = min(ylim), max(ylim)
+        x_span = max(1e-9, x1 - x0)
+        y_span = max(1e-9, y1 - y0)
+
+        if zoom_in:
+            new_x_span = max(min_x_span, x_span / zoom_factor)
+            new_y_span = max(min_y_span, y_span / zoom_factor)
+        else:
+            new_x_span = min(x_total, x_span * zoom_factor)
+            new_y_span = min(y_total, y_span * zoom_factor)
+
+        frac_x = 0.5 if x_span <= 0 else np.clip((x - x0) / x_span, 0.0, 1.0)
+        frac_y = 0.5 if y_span <= 0 else np.clip((y - y0) / y_span, 0.0, 1.0)
+        new_x0 = x - frac_x * new_x_span
+        new_y0 = y - frac_y * new_y_span
+
+        new_x0 = np.clip(new_x0, x_min, x_max - new_x_span)
+        new_y0 = np.clip(new_y0, y_min, y_max - new_y_span)
+        new_x1 = new_x0 + new_x_span
+        new_y1 = new_y0 + new_y_span
+
+        if x_desc:
+            ax.set_xlim(new_x1, new_x0)
+        else:
+            ax.set_xlim(new_x0, new_x1)
+        if y_desc:
+            ax.set_ylim(new_y1, new_y0)
+        else:
+            ax.set_ylim(new_y0, new_y1)
+        ax.figure.canvas.draw_idle()
+
+    ax.figure.canvas.mpl_connect('scroll_event', on_scroll)
+
+
+def add_left_drag_pan(ax, extent=None):
+    """Pan image with left-click drag while clamping to image bounds."""
+    if extent is None and ax.images:
+        extent = ax.images[0].get_extent()
+    if extent is None:
+        return
+
+    left, right, bottom, top = extent
+    x_min, x_max = min(left, right), max(left, right)
+    y_min, y_max = min(bottom, top), max(bottom, top)
+    state = {'dragging': False, 'last_x': None, 'last_y': None}
+
+    def _set_limits_with_orientation(x0, x1, y0, y1, x_desc, y_desc):
+        if x_desc:
+            ax.set_xlim(x1, x0)
+        else:
+            ax.set_xlim(x0, x1)
+        if y_desc:
+            ax.set_ylim(y1, y0)
+        else:
+            ax.set_ylim(y0, y1)
+
+    def on_press(event):
+        if event.inaxes != ax or event.button != 1:
+            return
+        if event.xdata is None or event.ydata is None:
+            return
+        state['dragging'] = True
+        state['last_x'] = event.xdata
+        state['last_y'] = event.ydata
+
+    def on_release(event):
+        if event.button == 1:
+            state['dragging'] = False
+            state['last_x'] = None
+            state['last_y'] = None
+
+    def on_move(event):
+        if not state['dragging'] or event.inaxes != ax:
+            return
+        if event.xdata is None or event.ydata is None:
+            return
+
+        dx = event.xdata - state['last_x']
+        dy = event.ydata - state['last_y']
+        state['last_x'] = event.xdata
+        state['last_y'] = event.ydata
+
+        xlim = ax.get_xlim()
+        ylim = ax.get_ylim()
+        x_desc = xlim[0] > xlim[1]
+        y_desc = ylim[0] > ylim[1]
+        x0, x1 = min(xlim), max(xlim)
+        y0, y1 = min(ylim), max(ylim)
+        x_span = x1 - x0
+        y_span = y1 - y0
+
+        if x_span >= (x_max - x_min):
+            new_x0, new_x1 = x_min, x_max
+        else:
+            new_x0 = np.clip(x0 - dx, x_min, x_max - x_span)
+            new_x1 = new_x0 + x_span
+        if y_span >= (y_max - y_min):
+            new_y0, new_y1 = y_min, y_max
+        else:
+            new_y0 = np.clip(y0 - dy, y_min, y_max - y_span)
+            new_y1 = new_y0 + y_span
+
+        _set_limits_with_orientation(new_x0, new_x1, new_y0, new_y1, x_desc, y_desc)
+        ax.figure.canvas.draw_idle()
+
+    canvas = ax.figure.canvas
+    canvas.mpl_connect('button_press_event', on_press)
+    canvas.mpl_connect('button_release_event', on_release)
+    canvas.mpl_connect('motion_notify_event', on_move)
 
 
 class MultiPointClicker:
