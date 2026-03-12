@@ -245,11 +245,27 @@ Use any 3D TIFF stack of fluorescent beads (e.g. from your confocal or light-she
 
 ```bash
 pip install -e ".[dev]"
-pytest tests/
+pytest tests/ -v
 ```
+
+CI runs automatically on every push and pull request to `main` via
+[GitHub Actions](.github/workflows/test.yml), testing across Python 3.9–3.11
+on both Ubuntu and Windows.
+
+### Pre-install Check
+
+If you are on an older or unfamiliar system, run the install checker first:
+
+```bash
+python install_check.py
+```
+
+This verifies your Python version, pip version, and dry-runs dependency
+resolution to catch conflicts before they happen.
 
 ## Reproducibility And Versions
 
+- **Python:** >=3.9 (tested on 3.9, 3.10, 3.11)
 - Current tested minimums in this repo:
   - `cellpose>=4.0.8`
   - `stardist>=0.9.2`

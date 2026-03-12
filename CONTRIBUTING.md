@@ -8,8 +8,14 @@ To maintain the scientific integrity and performance of the codebase, all contri
 
 1. **Fork the Repository:** Create your own fork of the project to work on.
 2. **Create a Feature Branch:** Keep your changes organized in a dedicated branch (e.g., `feature/improved-deconvolution` or `fix/metadata-parsing`).
-3. **Submit a Pull Request:** Once your changes are tested, submit a PR to the main branch.
-4. **The Vetting Process:** Each PR will be reviewed for:
+3. **Run Tests:** Before submitting, make sure all tests pass:
+   ```bash
+   pip install -e ".[dev]"
+   pytest tests/ -v
+   ```
+   CI will also run these automatically on your PR across Python 3.9–3.11 (Ubuntu + Windows).
+4. **Submit a Pull Request:** Once your changes are tested, submit a PR to the main branch.
+5. **The Vetting Process:** Each PR will be reviewed for:
    - **Scientific Accuracy:** Does the math/logic hold up for imaging data?
    - **Code Quality:** Is the code readable and follows standard Python (PEP 8) conventions?
    - **Documentation:** Are new features or changes clearly explained?
