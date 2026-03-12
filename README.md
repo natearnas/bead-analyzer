@@ -278,6 +278,15 @@ If you are interested in discussing a collaboration or professional engagement, 
 - **Email:** nate@arnastechnologies.com
 - **Website:** [www.arnastechnologies.com](https://www.arnastechnologies.com)
 
+## Acknowledgments
+
+This tool optionally integrates the following packages. If you use one of
+these detection modes in published work, please cite the original authors:
+
+- **Trackpy** — Allan, D. B., Caswell, T., Keim, N. C., van der Wel, C. M., & Verweij, R. W. *soft-matter/trackpy*. Zenodo. [DOI: 10.5281/zenodo.4682814](https://doi.org/10.5281/zenodo.4682814)
+- **StarDist** — Schmidt, U., Weigert, M., Broaddus, C., & Myers, G. *Cell Detection with Star-Convex Polygons.* MICCAI 2018. [DOI: 10.1007/978-3-030-00934-2_30](https://doi.org/10.1007/978-3-030-00934-2_30)
+- **Cellpose** — Stringer, C., Wang, T., Michaelos, M., & Pachitariu, M. *Cellpose: a generalist algorithm for cellular segmentation.* Nature Methods 18, 100–106 (2021). [DOI: 10.1038/s41592-020-01018-x](https://doi.org/10.1038/s41592-020-01018-x)
+
 ## License
 
 MIT

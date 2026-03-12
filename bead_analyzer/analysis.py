@@ -17,6 +17,7 @@ import numpy as np
 from pathlib import Path
 from scipy.ndimage import map_coordinates, zoom, shift, gaussian_filter
 from scipy import signal
+from scipy.signal import find_peaks
 import tifffile
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -255,7 +256,12 @@ def _save_bead_diagnostic(bead_id, volume, z_profile, x_profile, y_profile,
     if fwhm_result and 'fwhm_z_prom_um' in fwhm_result:
         fwhm_z = fwhm_result['fwhm_z_prom_um']
         peak_idx = np.argmax(z_profile)
-        half_max = (np.max(z_profile) + np.min(z_profile)) / 2
+        peaks, props = find_peaks(z_profile, prominence=0.1)
+        if peaks.size:
+            best = np.argmax(props['prominences'])
+            half_max = z_profile[peaks[best]] - props['prominences'][best] / 2.0
+        else:
+            half_max = (np.max(z_profile) + np.min(z_profile)) / 2
         ax_z.axhline(half_max, color='r', ls='--', alpha=0.7, label=f'FWHM={fwhm_z:.2f}µm')
         ax_z.axvline(z_ax[peak_idx], color='g', ls=':', alpha=0.5)
     if fit_gaussian and fwhm_result and 'fwhm_z_gauss_um' in fwhm_result and fwhm_result['fwhm_z_gauss_um']:
@@ -284,7 +290,12 @@ def _save_bead_diagnostic(bead_id, volume, z_profile, x_profile, y_profile,
     ax_x.plot(x_ax, x_profile, 'g-', lw=1.5, label='X profile')
     if fwhm_result and 'fwhm_x_prom_um' in fwhm_result:
         fwhm_x = fwhm_result['fwhm_x_prom_um']
-        half_max = (np.max(x_profile) + np.min(x_profile)) / 2
+        peaks_x, props_x = find_peaks(x_profile, prominence=0.1)
+        if peaks_x.size:
+            best_x = np.argmax(props_x['prominences'])
+            half_max = x_profile[peaks_x[best_x]] - props_x['prominences'][best_x] / 2.0
+        else:
+            half_max = (np.max(x_profile) + np.min(x_profile)) / 2
         ax_x.axhline(half_max, color='r', ls='--', alpha=0.7, label=f'FWHM={fwhm_x:.2f}µm')
     if fit_gaussian and fwhm_result and 'fwhm_x_gauss_um' in fwhm_result and fwhm_result['fwhm_x_gauss_um']:
         try:
@@ -312,7 +323,12 @@ def _save_bead_diagnostic(bead_id, volume, z_profile, x_profile, y_profile,
     ax_y.plot(y_ax, y_profile, 'm-', lw=1.5, label='Y profile')
     if fwhm_result and 'fwhm_y_prom_um' in fwhm_result:
         fwhm_y = fwhm_result['fwhm_y_prom_um']
-        half_max = (np.max(y_profile) + np.min(y_profile)) / 2
+        peaks_y, props_y = find_peaks(y_profile, prominence=0.1)
+        if peaks_y.size:
+            best_y = np.argmax(props_y['prominences'])
+            half_max = y_profile[peaks_y[best_y]] - props_y['prominences'][best_y] / 2.0
+        else:
+            half_max = (np.max(y_profile) + np.min(y_profile)) / 2
         ax_y.axhline(half_max, color='r', ls='--', alpha=0.7, label=f'FWHM={fwhm_y:.2f}µm')
     if fit_gaussian and fwhm_result and 'fwhm_y_gauss_um' in fwhm_result and fwhm_result['fwhm_y_gauss_um']:
         try:

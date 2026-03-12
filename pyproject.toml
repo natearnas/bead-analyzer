@@ -38,8 +38,8 @@ bead-analyzer = "bead_analyzer.cli:main"
 bead-analyzer-gui = "bead_analyzer.gui:main"
 
 [project.urls]
-Repository = "https://github.com/your-org/fwhm-bead-analyzer"
-Documentation = "https://github.com/your-org/fwhm-bead-analyzer#readme"
+Repository = "https://github.com/natearnas/bead-analyzer"
+Documentation = "https://github.com/natearnas/bead-analyzer#readme"
 
 [tool.setuptools.packages.find]
 where = ["."]
