@@ -228,7 +228,10 @@ bead-analyzer beads.tif --mode cellpose --scale_xy 0.26 --scale_z 2 \
 - [CLI usage](docs/CLI.md)
 - [GUI usage](docs/GUI.md)
 - [Example commands](examples/example_commands.txt)
-- [Building Windows executable](BUILD.md)
+- [Building & installing](BUILD.md)
+- [Contributing](CONTRIBUTING.md)
+- [Changelog](CHANGELOG.md)
+- [CI workflow](.github/workflows/test.yml) — tests on Python 3.9–3.11, Ubuntu + Windows
 
 ## Sample Data
 
