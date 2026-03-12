@@ -1,3 +1,4 @@
+# --- Python & Build Artifacts ---
 __pycache__/
 *.py[cod]
 *$py.class
@@ -18,23 +19,47 @@ wheels/
 *.egg-info/
 .installed.cfg
 *.egg
+python
 
+# --- Virtual Environments ---
 .venv/
 venv/
 ENV/
 
+# --- Scientific Data (Safety First!) ---
 *.tif
 *.tiff
 *.czi
+*.nd2
 training/
 models/
 
+# --- Bead Analyzer Specific Outputs ---
+# These prevent your local test results from leaking to GitHub
+bead_diagnostics/
+test_output_*/
+*_FWHM_data.csv
+*_bead_quality.csv
+*_rejected_beads.csv
+*_every_bead_log.csv
+*_FWHM_summary.txt
+*_average_bead_stack.tif
+*_average_bead_plot.png
+*_summary_figure.png
+*_detection_overview.png
+*_FWHM_heatmap.png
+
+# --- Testing ---
+.pytest_cache/
+# Allow small test images if you have them in the tests folder
+!tests/*.tif
+!tests/*.csv
+
+# --- System & IDEs ---
 *.log
 .DS_Store
 Thumbs.db
-
 .vscode/
 .idea/
 .claude/
-test_output_*/
-python
+.cursor/
