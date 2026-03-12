@@ -4,20 +4,54 @@ Analyze images of microspheres for characterizing light microscopy systems. Meas
 
 ## Quick Start
 
-```bash
-# Install
-pip install -e .
-# For StarDist: pip install -e ".[stardist]"
-# For Cellpose: pip install -e ".[cellpose]"
+### Installation
 
-# GUI
+Choose the method that best fits your workflow:
+
+#### A. Recommended: Using Conda or Virtual Environments
+
+To prevent conflicts with other imaging tools, we highly recommend using a fresh environment:
+
+```bash
+# Create and activate a clean environment
+conda create -n bead-env python=3.10
+conda activate bead-env
+
+# Install the analyzer
+pip install .
+```
+
+For optional detection backends:
+
+```bash
+pip install ".[stardist]"   # StarDist support
+pip install ".[cellpose]"   # Cellpose support
+```
+
+#### B. For Researchers (No Git Required)
+
+If you do not use Git, follow these steps to get running in minutes:
+
+1. **Download:** Click the green **"<> Code"** button above and select **"Download ZIP"**.
+2. **Extract:** Unzip the folder to your analysis directory (e.g., `D:\Analysis\bead-analyzer`).
+3. **Verify & Install:** Open a terminal (PowerShell or Terminal.app), navigate to that folder, and run:
+
+```bash
+python install_check.py  # Run the built-in environment checker
+pip install .
+```
+
+### Running the App
+
+```bash
+# Launch the Graphical Interface
 bead-analyzer-gui
 
-# CLI (default mode = blob)
+# Use the Command Line (default mode = blob)
 bead-analyzer image.tif --scale_xy 0.26 --scale_z 2.0
 ```
 
-## CLI
+## CLI Reference
 
 The command-line interface supports five detection modes. Required arguments: input file, `--scale_xy`, and `--scale_z`.
 
@@ -69,16 +103,16 @@ For bead-center localization, some labs report strong results with keypoint/heat
 
 ## Outputs
 
-- `*_FWHM_data.csv` – per-bead FWHM measurements (all modes)
-- `*_FWHM_summary.txt` – mean ± std report
-- `*_bead_quality.csv` – QA metrics (SNR, symmetry)
-- `*_average_bead_stack.tif` – upsampled average bead (all modes)
-- `*_average_bead_plot.png` – XY/XZ/YZ projections of average bead
-- `*_summary_figure.png` – publication-quality figure: average bead projections with scale bars + mean profiles with Gaussian fit overlay
-- `*_detection_overview.png` – MIP with bead locations (green=accepted, red=rejected)
-- `*_FWHM_heatmap.png` – 3x3 spatial FWHM variation across the field (all modes)
-- `*_rejected_beads.csv` – beads filtered by QA (if `--qa_auto_reject`)
-- `bead_diagnostics/` – per-bead diagnostic plots with fit overlays on all axes (if `--save_diagnostics`)
+- `*_FWHM_data.csv` -- per-bead FWHM measurements (all modes)
+- `*_FWHM_summary.txt` -- mean +/- std report
+- `*_bead_quality.csv` -- QA metrics (SNR, symmetry)
+- `*_average_bead_stack.tif` -- upsampled average bead (all modes)
+- `*_average_bead_plot.png` -- XY/XZ/YZ projections of average bead
+- `*_summary_figure.png` -- publication-quality figure: average bead projections with scale bars + mean profiles with Gaussian fit overlay
+- `*_detection_overview.png` -- MIP with bead locations (green=accepted, red=rejected)
+- `*_FWHM_heatmap.png` -- 3x3 spatial FWHM variation across the field (all modes)
+- `*_rejected_beads.csv` -- beads filtered by QA (if `--qa_auto_reject`)
+- `bead_diagnostics/` -- per-bead diagnostic plots with fit overlays on all axes (if `--save_diagnostics`)
 - (Cellpose) `*_every_bead_log.csv`
 
 ## How The Measurement Works
@@ -87,47 +121,23 @@ Understanding the pipeline helps you choose the right options.
 
 ### 1. Bead Detection
 
-A 2D maximum-intensity projection (MIP) is computed from the Z-stack. Beads
-are located on the MIP by one of five methods:
+A 2D maximum-intensity projection (MIP) is computed from the Z-stack. Beads are located on the MIP by one of the five methods listed above.
 
-| Method | How it works | When to use |
-|--------|-------------|-------------|
-| **Manual** | You right-click on beads | Few beads, or unusual samples |
-| **Blob** | Gaussian smoothing + local maxima | Default for small fluorescent beads |
-| **Trackpy** | Bandpass filtering + centroid localization | Low-NA / background gradients |
-| **StarDist** | Pretrained neural network (`2D_versatile_fluo`) finds star-convex objects | Beads roughly 15+ px diameter |
-| **Cellpose** | Custom-trained model segments bead masks | Dense/overlapping fields, beads roughly 15+ px diameter |
-
-StarDist still has a **blob fallback** (`--use_blob_fallback`) when you want to
-keep StarDist as the primary detector but recover from sparse/failed detections.
+StarDist still has a **blob fallback** (`--use_blob_fallback`) when you want to keep StarDist as the primary detector but recover from sparse/failed detections.
 
 ### 2. Center Refinement
 
-Each detected bead center is refined to **sub-pixel precision** using parabolic
-interpolation around the 3D intensity peak.  This matters because at coarse
-pixel sizes (e.g. 0.51 µm/px), a 500 nm bead spans only ~3 pixels — snapping
-to the nearest integer pixel shifts the center by up to 0.5 px, which is ~17%
-of the bead FWHM.
+Each detected bead center is refined to **sub-pixel precision** using parabolic interpolation around the 3D intensity peak. This prevents snapping errors that can shift the center by up to 0.5 px.
 
 ### 3. Profile Extraction
 
-Three 1D intensity profiles are drawn through the refined center:
+Three 1D intensity profiles (Z, X, and Y) are drawn through the refined center using bilinear interpolation (`scipy.ndimage.map_coordinates`, `order=1`) for lateral axes.
 
-- **Z profile**: average intensity in a small box around the center, per Z-plane
-- **X profile**: a line across the best-focus plane, sampled with bilinear
-  interpolation (`scipy.ndimage.map_coordinates`, `order=1`)
-- **Y profile**: same, perpendicular axis
-
-The line length (`--line_length`, default 5 µm) should be at least 3× the
-expected FWHM so the profile tails reach background.  The box size
-(`--box_size`, default 15 px) controls how many XY pixels are averaged for
-the Z profile — larger boxes improve Z-profile SNR but blur if beads are close
-together.
+The line length (`--line_length`, default 5 um) should be at least 3x the expected FWHM so the profile tails reach background. The box size (`--box_size`, default 15 px) controls how many XY pixels are averaged for the Z profile -- larger boxes improve Z-profile SNR but blur if beads are close together.
 
 ### 4. Background Subtraction
 
-Before measuring the width, each profile needs its baseline set to zero.
-Three strategies are available:
+Bead Analyzer supports three baseline correction strategies:
 
 | Strategy | Flag | What it does | When to use |
 |----------|------|-------------|-------------|
@@ -135,31 +145,16 @@ Three strategies are available:
 | **Detrend** | `--detrend` | `scipy.signal.detrend` (removes linear slope) | Profiles with a tilted baseline |
 | **Local annulus** | `--local_background` | Subtracts the median intensity in a ring around the bead | Light-sheet data with spatially varying out-of-focus haze |
 
-The **local annulus** method estimates background from a ring whose inner radius
-equals the box half-size and outer radius extends a few more pixels.  This is
-the most accurate option when different beads sit on different local background
-levels (common in light-sheet microscopy where out-of-focus fluorescence varies
-across the field).
-
-**Note:** The Gaussian fit model (`A*exp(...) + C`) independently estimates a
-constant background `C`, so the fitted FWHM is somewhat tolerant of baseline
-errors regardless of which strategy you choose.  The prominence method also
-measures half-maximum relative to the peak base, not absolute zero.
+**Note:** The Gaussian fit model (`A*exp(...) + C`) independently estimates a constant background `C`, so the fitted FWHM is somewhat tolerant of baseline errors regardless of which strategy you choose. The prominence method also measures half-maximum relative to the peak base, not absolute zero.
 
 ### 5. FWHM Measurement
 
-Two methods are always computed for the Z axis, and optionally for X/Y:
+Both **Prominence** (robust to background offsets) and **Gaussian Fit** (parametric sub-pixel precision) methods are computed for analysis.
 
 | Method | What it does | Strengths |
 |--------|-------------|-----------|
 | **Prominence** | Finds the peak, measures width at half the peak prominence | Fast, no assumptions about shape, works on noisy profiles |
-| **Gaussian fit** | Fits `A * exp(-0.5*((x-µ)/σ)²) + C`, computes FWHM = 2√(2 ln 2) × σ | Sub-pixel precision, gives a parametric model, reports fit quality |
-
-Why prominence (instead of simple max-peak half-height):
-
-- **Max-peak half-height** uses half of the absolute peak value. If baseline/background is non-zero, this biases width estimates.
-- **Prominence half-height** uses half of `(peak - base)` and measures relative to the local peak base, so it is much more robust to background offsets and sloped baselines.
-- **Gaussian fit** gives a third independent estimate based on fitted sigma and is useful when you want sub-pixel parametric widths.
+| **Gaussian fit** | Fits `A * exp(-0.5*((x-mu)/sigma)^2) + C`, computes FWHM = 2*sqrt(2 ln 2) * sigma | Sub-pixel precision, gives a parametric model, reports fit quality |
 
 Enable Gaussian fitting with `--fit_gaussian`.
 
@@ -168,28 +163,23 @@ Enable Gaussian fitting with `--fit_gaussian`.
 | Option | Flag | What it does |
 |--------|------|-------------|
 | **1D Gaussian** | `--fit_gaussian` | Fits 1D Gaussians to each axis profile independently |
-| **3D Gaussian** | `--fit_3d` | Fits a single 3D Gaussian to the entire bead volume — more accurate for asymmetric PSFs because it uses all voxels simultaneously |
-| **Robust fit** | `--robust_fit` | Switches the optimizer to use soft-L1 loss (a smooth Huber-like function) instead of least-squares. This **downweights outlier pixels** in the profile tails — useful when beads are clipped by the edge of a segmentation mask, when a neighboring bead contaminates the tail, or when the PSF is slightly asymmetric. Without this, a single bright outlier pixel in the tail can pull the Gaussian wider than reality. |
+| **3D Gaussian** | `--fit_3d` | Fits a single 3D Gaussian to the entire bead volume -- more accurate for asymmetric PSFs because it uses all voxels simultaneously |
+| **Robust fit** | `--robust_fit` | Switches the optimizer to use soft-L1 loss (a smooth Huber-like function) instead of least-squares. This **downweights outlier pixels** in the profile tails -- useful when beads are clipped by the edge of a segmentation mask, when a neighboring bead contaminates the tail, or when the PSF is slightly asymmetric. |
 
-All Gaussian fits (1D and 3D) enforce **parameter bounds**: amplitude > 0,
-sigma ≥ 0.3 px, center within the data window.  This prevents degenerate fits
-(negative width, negative amplitude) that could silently corrupt results.
+All Gaussian fits (1D and 3D) enforce **parameter bounds**: amplitude > 0, sigma >= 0.3 px, center within the data window. This prevents degenerate fits (negative width, negative amplitude) that could silently corrupt results.
 
 ### 7. Quality Assurance
 
-After fitting, each bead gets two QA scores:
+After fitting, each bead receives two QA scores:
 
-- **SNR**: peak intensity above noise (estimated from the Z-profile baseline).
-  Default threshold: 3.0.
-- **Symmetry**: how symmetric the Z-profile is around its peak (1.0 = perfect).
-  Default threshold: 0.6.
+- **SNR**: peak intensity above noise (estimated from the Z-profile baseline). Default threshold: 3.0.
+- **Symmetry**: how symmetric the Z-profile is around its peak (1.0 = perfect). Default threshold: 0.6.
 
-With `--qa_auto_reject`, beads below these thresholds are automatically removed
-from the summary statistics and written to a separate `*_rejected_beads.csv`.
+With `--qa_auto_reject`, beads below these thresholds are automatically removed from the summary statistics and written to a separate `*_rejected_beads.csv`.
 
 ### 8. Diagnostics
 
-`--save_diagnostics` writes a PNG per bead to `bead_diagnostics/` showing:
+Use `--save_diagnostics` to write a PNG per bead to `bead_diagnostics/` showing:
 - Z/X/Y profiles with FWHM markers
 - XY/XZ/YZ projections through the bead center
 - All numeric results (FWHM, QA scores, fit residuals)
@@ -231,7 +221,7 @@ bead-analyzer beads.tif --mode cellpose --scale_xy 0.26 --scale_z 2 \
 - [Building & installing](BUILD.md)
 - [Contributing](CONTRIBUTING.md)
 - [Changelog](CHANGELOG.md)
-- [CI workflow](.github/workflows/test.yml) — tests on Python 3.9–3.11, Ubuntu + Windows
+- [CI workflow](.github/workflows/test.yml) -- automatic testing on Python 3.9-3.11 for Windows and Ubuntu
 
 ## Sample Data
 
@@ -239,21 +229,21 @@ Use any 3D TIFF stack of fluorescent beads (e.g. from your confocal or light-she
 
 ## Cellpose Workflow
 
-1. Annotate: `python scripts/annotate_beads.py image.tif` → creates `*_raw.tif`, `*_masks.tif`
+1. Annotate: `python scripts/annotate_beads.py image.tif` -> creates `*_raw.tif`, `*_masks.tif`
 2. Train: `python scripts/train_cellpose.py path/to/folder`
 3. Set model: `set FWHM_CELLPOSE_MODEL=path/to/cellpose_bead_model` (Windows) or `export FWHM_CELLPOSE_MODEL=...` (Unix)
 4. Analyze: `bead-analyzer image.tif --mode cellpose --scale_xy 0.26 --scale_z 2 --cellpose_model path/to/model`
 
-## Development
+## Development & Reproducibility
+
+### Testing
 
 ```bash
 pip install -e ".[dev]"
 pytest tests/ -v
 ```
 
-CI runs automatically on every push and pull request to `main` via
-[GitHub Actions](.github/workflows/test.yml), testing across Python 3.9–3.11
-on both Ubuntu and Windows.
+Continuous Integration (CI) runs automatically on every push to `main` via [GitHub Actions](.github/workflows/test.yml), testing across Python 3.9-3.11 on both Ubuntu and Windows.
 
 ### Pre-install Check
 
@@ -263,25 +253,19 @@ If you are on an older or unfamiliar system, run the install checker first:
 python install_check.py
 ```
 
-This verifies your Python version, pip version, and dry-runs dependency
-resolution to catch conflicts before they happen.
+This verifies your Python version (>=3.9), pip version, and dry-runs dependency resolution to catch conflicts before they happen.
 
-## Reproducibility And Versions
+### Reproducibility
 
 - **Python:** >=3.9 (tested on 3.9, 3.10, 3.11)
 - Current tested minimums in this repo:
   - `cellpose>=4.0.8`
   - `stardist>=0.9.2`
   - `csbdeep>=0.7.4`
-- Install extras:
-  - `pip install -e ".[stardist]"`
-  - `pip install -e ".[cellpose]"`
 
 ## Consulting & Collaboration
 
-This project is developed and maintained by Nathan O'Connor, PhD, MS,Arnas Technologies, LLC.
-
-While this software is provided as a tool for the community, I offer professional services for labs and companies requiring tailored, end-to-end solutions. I specialize in bridging the gap from sample to reports and figures, ensuring that your raw imaging data is transformed into actionable scientific insight.
+This project is developed and maintained by Nathan O'Connor, PhD, MS at Arnas Technologies, LLC. I offer professional services for labs and companies requiring tailored, end-to-end solutions, specializing in bridging the gap from sample to reports and figures.
 
 ### How I Can Support Your Research
 
@@ -302,9 +286,9 @@ If you are interested in discussing a collaboration or professional engagement, 
 This tool optionally integrates the following packages. If you use one of
 these detection modes in published work, please cite the original authors:
 
-- **Trackpy** — Allan, D. B., Caswell, T., Keim, N. C., van der Wel, C. M., & Verweij, R. W. *soft-matter/trackpy*. Zenodo. [DOI: 10.5281/zenodo.4682814](https://doi.org/10.5281/zenodo.4682814)
-- **StarDist** — Schmidt, U., Weigert, M., Broaddus, C., & Myers, G. *Cell Detection with Star-Convex Polygons.* MICCAI 2018. [DOI: 10.1007/978-3-030-00934-2_30](https://doi.org/10.1007/978-3-030-00934-2_30)
-- **Cellpose** — Stringer, C., Wang, T., Michaelos, M., & Pachitariu, M. *Cellpose: a generalist algorithm for cellular segmentation.* Nature Methods 18, 100–106 (2021). [DOI: 10.1038/s41592-020-01018-x](https://doi.org/10.1038/s41592-020-01018-x)
+- **Trackpy** -- Allan, D. B., Caswell, T., Keim, N. C., van der Wel, C. M., & Verweij, R. W. *soft-matter/trackpy*. Zenodo. [DOI: 10.5281/zenodo.4682814](https://doi.org/10.5281/zenodo.4682814)
+- **StarDist** -- Schmidt, U., Weigert, M., Broaddus, C., & Myers, G. *Cell Detection with Star-Convex Polygons.* MICCAI 2018. [DOI: 10.1007/978-3-030-00934-2_30](https://doi.org/10.1007/978-3-030-00934-2_30)
+- **Cellpose** -- Stringer, C., Wang, T., Michaelos, M., & Pachitariu, M. *Cellpose: a generalist algorithm for cellular segmentation.* Nature Methods 18, 100-106 (2021). [DOI: 10.1038/s41592-020-01018-x](https://doi.org/10.1038/s41592-020-01018-x)
 
 ## License
 
