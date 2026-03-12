@@ -1334,8 +1334,9 @@ def _save_detection_overview(results, rejected, mip, file_path, gamma=1.0):
     print(f"Detection overview saved to: {out_path}")
 
 
-def _save_mip_views(stack, file_path, scale_xy, scale_z):
+def _save_mip_views(stack, file_path, scale_xy, scale_z, xy_gamma=0.65):
     """Save XY/XZ/YZ maximum intensity projections in one physically scaled figure."""
+    from matplotlib.colors import PowerNorm
     if stack is None or getattr(stack, "ndim", 0) != 3:
         return
     xy_mip = np.max(stack, axis=0)
@@ -1351,7 +1352,8 @@ def _save_mip_views(stack, file_path, scale_xy, scale_z):
     ax_xz = fig.add_subplot(1, 3, 2)
     ax_yz = fig.add_subplot(1, 3, 3)
 
-    ax_xy.imshow(xy_mip, cmap='gray', extent=[0, x_um, y_um, 0], aspect='equal')
+    norm_xy = PowerNorm(gamma=xy_gamma) if xy_gamma != 1 else None
+    ax_xy.imshow(xy_mip, cmap='gray', extent=[0, x_um, y_um, 0], aspect='equal', norm=norm_xy)
     ax_xy.set_title('XY MIP')
     ax_xy.set_xlabel('X (µm)')
     ax_xy.set_ylabel('Y (µm)')
