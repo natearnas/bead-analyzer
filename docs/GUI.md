@@ -117,8 +117,8 @@ Settings are automatically restored from your last session, so you only need to:
 
 - **Blob**: Recommended default for most bead slides, especially tiny beads (< 10 px diameter)
 - **Trackpy**: Good for low-NA data, nonuniform background gradients, or dim beads
-- **StarDist**: Best when beads are relatively large (~15+ px diameter) and well-separated
-- **Cellpose**: Best for dense/overlapping bead fields when beads are ~15+ px diameter (requires trained model)
+- **StarDist**: Best when beads are relatively large (~15+ px diameter) and well-separated; on native Windows it is often CPU-heavy because it runs through TensorFlow
+- **Cellpose**: Best for dense/overlapping bead fields when beads are ~15+ px diameter; in this pipeline it is intended for bead-specific custom-trained models
 - **Manual**: Use when automatic detection fails, or for targeted analysis of specific beads
 
 ## Tips & Best Practices
@@ -213,6 +213,11 @@ Some modes open matplotlib windows for user input:
 - **All FWHM values are None** – See main README Troubleshooting section
 - **Cellpose model not found** – Verify path in Browse field or check `FWHM_CELLPOSE_MODEL` environment variable
 - **Analysis hangs / no progress** – Check terminal/console for error messages; matplotlib windows may need to be closed
+
+### Performance Expectations
+- **StarDist on native Windows**: can be slower and use more CPU/RAM because TensorFlow often runs CPU-heavy in this setup
+- **Cellpose**: runs best with a bead-specific custom model; generic biological pretrained models may underperform on small PSF beads
+- **For routine bead runs**: start with Blob/Trackpy, then escalate to StarDist/Cellpose for dense or difficult scenes
 
 ### When to Use CLI Instead
 The CLI offers more control for advanced users:

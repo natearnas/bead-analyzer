@@ -57,6 +57,16 @@ Add `--na 1.4 --fluorophore "FITC"` to record experimental metadata in the summa
 - **StarDist/Cellpose path**: best when beads span roughly 15+ pixels in diameter.
 - **Cellpose 3D**: for anisotropic z-stacks, use `--cellpose_do_3d --anisotropy (z_spacing/xy_spacing)`.
 
+### Detector Caveats And Platform Notes
+
+- **StarDist on native Windows**: often CPU-heavy in practical setups because StarDist depends on TensorFlow. This can increase runtime and RAM usage compared with classical detectors. TensorFlow GPU workflows are generally smoother on Linux/WSL2 than native Windows.
+- **Cellpose in this pipeline**: intended for bead-specific custom models. Generic biological pretrained models (for cells/nuclei) often underperform on tiny PSF beads.
+- **Practical default for beads**: start with Blob or Trackpy for most datasets, then use StarDist/Cellpose for dense, overlapping, or otherwise difficult fields where classical detectors struggle.
+
+### AI Methods Not Yet Integrated
+
+For bead-center localization, some labs report strong results with keypoint/heatmap spot detectors (2D) and heatmap-regression or U-Net-style models (3D). These are not currently integrated in this repository; current AI options are StarDist and Cellpose.
+
 ## Outputs
 
 - `*_FWHM_data.csv` – per-bead FWHM measurements (all modes)

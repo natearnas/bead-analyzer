@@ -86,6 +86,8 @@ Or: `python -m bead_analyzer.cli INPUT.tif ...`
 - `--points_file` – Override detection with pre-defined points
 - `--max_z_fwhm` – Reject beads with Z-FWHM above this (µm)
 - Best used when beads span approximately 15+ pixels in diameter.
+- On native Windows, StarDist can be CPU-heavy (TensorFlow backend), so runtime and RAM use may be higher than Blob/Trackpy.
+- If you specifically need TensorFlow GPU workflows, Linux/WSL2 is commonly smoother than native Windows.
 
 ### Cellpose
 
@@ -98,6 +100,7 @@ Or: `python -m bead_analyzer.cli INPUT.tif ...`
 - `--cellpose_do_3d` – Native Cellpose 3D segmentation on full stack
 - `--anisotropy` – Z/XY spacing ratio for 3D Cellpose (e.g. 1.0/0.51 = 1.96)
 - Best used when beads span approximately 15+ pixels in diameter.
+- For this bead workflow, use a bead-specific custom-trained model; generic biological pretrained models may underperform on tiny PSF beads.
 - `--num_beads_avg` – Beads for average (near median FWHM, minimum 1)
 - `--z_range` – Z range `min max` (pixels)
 - `--z_analysis_margin` – Margin around peak for Z analysis
