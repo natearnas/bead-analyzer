@@ -223,9 +223,17 @@ bead-analyzer beads.tif --mode cellpose --scale_xy 0.26 --scale_z 2 \
 - [Changelog](CHANGELOG.md)
 - [CI workflow](.github/workflows/test.yml) -- automatic testing on Python 3.9-3.11 for Windows and Ubuntu
 
+## Supported Formats
+
+**File types:** TIFF, BigTIFF, and OME-TIFF image stacks (`.tif`, `.tiff`, `.ome.tif`). Proprietary formats (`.nd2`, `.czi`, `.lif`, etc.) should be exported to TIFF from your acquisition software before analysis.
+
+**Large files:** For multi-gigabyte stacks, crop your data before analysis or ensure your system has sufficient RAM, as the entire stack is loaded into memory.
+
+The tool expects a single-channel or multi-channel stack with dimensions **(Z, Y, X)** or **(C, Z, Y, X)**. Use `--channel` to select a channel from multi-channel data.
+
 ## Sample Data
 
-Use any 3D TIFF stack of fluorescent beads (e.g. from your confocal or light-sheet microscope). The tool expects a single-channel or multi-channel stack with dimensions (Z, Y, X) or (C, Z, Y, X).
+Use any 3D TIFF stack of fluorescent beads (e.g. from your confocal or light-sheet microscope).
 
 ## Cellpose Workflow
 
