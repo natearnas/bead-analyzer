@@ -286,7 +286,7 @@ This project is developed and maintained by Nathan O'Connor, PhD, MS at Arnas Te
 
 If you are interested in discussing a collaboration or professional engagement, please reach out via:
 
-- **Email:** nate@arnastechnologies.com
+- **Email:** nathan@arnastech.com
 - **Website:** [www.arnastechnologies.com](https://www.arnastechnologies.com)
 
 ## Acknowledgments
