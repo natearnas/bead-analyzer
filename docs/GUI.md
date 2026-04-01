@@ -8,7 +8,7 @@ bead-analyzer-gui
 
 Or: `python -m bead_analyzer.gui`
 
-The GUI window title shows the version number (e.g., "Bead Analyzer v1.0.0").
+The GUI window title shows the version number (e.g., "Bead Analyzer v1.1.0").
 
 ## Layout Overview
 

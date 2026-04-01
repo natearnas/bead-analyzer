@@ -4,6 +4,18 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [1.1.0] - 2026-04-01
+
+### Added
+- Configurable bead center refinement modes (`peak`, `centroid`, `radial`) across CLI and GUI
+- Human-readable `*_run_settings.txt` output file for reproducible run settings
+- Advanced GUI Trackpy options (`Diameter`, `Minmass`, `Separation`)
+- New GUI use cases and docs guidance for small, large filled, and large hollow beads
+
+### Changed
+- Single-bead summary spread now reports `N/A` instead of `nan` when `n=1`
+- Improved advanced GUI layout and docs-panel placement behavior on wider windows
+
 ## [1.0.0] - 2026-03-03
 
 ### Added
