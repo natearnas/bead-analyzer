@@ -90,6 +90,7 @@ Add `--na 1.4 --fluorophore "FITC"` to record experimental metadata in the summa
 - **Trackpy path**: preferred when backgrounds have gradients or low-NA blur.
 - **StarDist/Cellpose path**: best when beads span roughly 15+ pixels in diameter.
 - **Cellpose 3D**: for anisotropic z-stacks, use `--cellpose_do_3d --anisotropy (z_spacing/xy_spacing)`.
+- **Center refinement for large annular beads**: try `--center_mode radial` first; use `--center_mode centroid` for filled but noisy beads.
 
 ### Detector Caveats And Platform Notes
 
@@ -127,7 +128,13 @@ StarDist still has a **blob fallback** (`--use_blob_fallback`) when you want to 
 
 ### 2. Center Refinement
 
-Each detected bead center is refined to **sub-pixel precision** using parabolic interpolation around the 3D intensity peak. This prevents snapping errors that can shift the center by up to 0.5 px.
+Each detected bead center is refined after detection. You can select the strategy with `--center_mode`:
+
+- **`peak`** (default): local 3D intensity-peak recentering + sub-pixel parabolic refinement.
+- **`centroid`**: intensity-weighted centroid on the local XY plane near peak Z.
+- **`radial`**: gradient-symmetry-weighted center (ring-friendly for hollow/annular beads).
+
+For PSF-like sub-resolution spots, keep `peak`. For resolved hollow-looking beads, `radial` usually gives a center closer to the geometric middle.
 
 ### 3. Profile Extraction
 

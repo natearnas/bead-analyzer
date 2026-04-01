@@ -23,6 +23,7 @@ Or: `python -m bead_analyzer.cli INPUT.tif ...`
 | `--mode` | blob | `manual`, `blob`, `trackpy`, `stardist`, or `cellpose` |
 | `--channel` | 0 | Channel index for 4D stacks |
 | `--box_size` | 15 | Box size for Z-profile (pixels) |
+| `--center_mode` | peak | XY center refinement mode: `peak`, `centroid`, `radial` |
 | `--line_length` | 5.0 | Line length for XY FWHM (µm) |
 | `--z_smooth` | 1.0 (manual) | Gaussian sigma for Z smoothing |
 | `--detrend` | False | Linear detrending of profiles |
@@ -62,6 +63,12 @@ Or: `python -m bead_analyzer.cli INPUT.tif ...`
 | `--sample_fraction` | 100 | Analyze this % of detected beads (1-100); random uniform sample; CSV/diagnostics only include analyzed beads |
 
 ## Mode-Specific Options
+
+## Center Refinement Guidance
+
+- `--center_mode peak` (default): best for tiny PSF-like beads where the brightest voxel is the true center.
+- `--center_mode centroid`: good for filled large beads with noise/asymmetry.
+- `--center_mode radial`: best first choice for ring-like or hollow-looking large beads where peak-based centering drifts toward the shell.
 
 ### Manual
 
@@ -142,6 +149,10 @@ bead-analyzer beads.tif --mode cellpose --scale_xy 0.51 --scale_z 1.0 \
 # Robust fitting with local background (recommended for light-sheet with OOF haze)
 bead-analyzer beads.tif --mode stardist --scale_xy 0.51 --scale_z 1.0 \
   --fit_gaussian --robust_fit --local_background
+
+# Large annular beads: ring-friendly centering
+bead-analyzer beads.tif --mode trackpy --scale_xy 0.0645 --scale_z 0.16 \
+  --trackpy_diameter 39 --trackpy_separation 41 --box_size 61 --center_mode radial
 ```
 
 ## Technical Notes

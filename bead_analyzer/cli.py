@@ -49,6 +49,9 @@ def main():
                         help="Output directory (default: same as input)")
     parser.add_argument("--channel", type=int, default=0)
     parser.add_argument("--box_size", type=int, default=15)
+    parser.add_argument("--center_mode", type=str, default="peak",
+                        choices=["peak", "centroid", "radial"],
+                        help="Center refinement mode: peak (default), centroid, or radial")
     parser.add_argument("--line_length", type=float, default=5.0)
     parser.add_argument("--z_smooth", type=float, default=None)
     parser.add_argument("--detrend", action="store_true")
@@ -180,6 +183,7 @@ def main():
         'scale_xy': args.scale_xy,
         'scale_z': args.scale_z,
         'box_size': args.box_size,
+        'center_mode': args.center_mode,
         'line_length': args.line_length,
         'z_smooth': args.z_smooth or (1.0 if args.mode == 'manual' else None),
         'detrend': args.detrend,
@@ -280,6 +284,7 @@ def main():
         qa_min_symmetry=args.qa_min_symmetry,
         rejected=rejected,
         profiles=profiles,
+        center_mode=args.center_mode,
     )
     print("\nAnalysis complete.")
     return 0

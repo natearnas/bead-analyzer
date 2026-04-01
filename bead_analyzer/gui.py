@@ -32,7 +32,8 @@ def _run_analysis(input_file, output_dir, mode, scale_xy, scale_z, na, fluoropho
                   cellpose_do_3d=False, anisotropy=None, use_blob_fallback=False,
                   local_background=False, robust_fit=False,
                   cellpose_min_size=3, cellpose_flow_threshold=0.4,
-                  num_beads_avg=20, sample_fraction=100, run_on_main=None):
+                  num_beads_avg=20, sample_fraction=100, center_mode='peak',
+                  run_on_main=None):
     """Run analysis in background thread. run_on_main: callable to run interactive matplotlib on main thread."""
     import tifffile
     from . import analysis
@@ -62,6 +63,7 @@ def _run_analysis(input_file, output_dir, mode, scale_xy, scale_z, na, fluoropho
             'status_callback': status_callback,
             'run_on_main': run_on_main,
             'sample_fraction': sample_fraction,
+            'center_mode': center_mode,
         }
         rejected = []
         if mode == 'manual':
@@ -104,6 +106,7 @@ def _run_analysis(input_file, output_dir, mode, scale_xy, scale_z, na, fluoropho
             stack=stack,
             profiles=profiles,
             num_beads_avg=num_beads_avg,
+            center_mode=center_mode,
         )
         rej_msg = f" ({len(rejected)} rejected)" if rejected else ""
         status_callback(f"Done. {len(results)} beads analyzed{rej_msg}.")
@@ -241,6 +244,10 @@ def main():
     na_var = ctk.StringVar(value=str(prev.get('na', '')) if prev.get('na') is not None else '')
     fluorophore_var = ctk.StringVar(value=prev.get('fluorophore', '') or '')
     mode_var = ctk.StringVar(value=prev.get('mode', 'blob'))
+    center_mode_prev = str(prev.get('center_mode', 'peak')).lower()
+    if center_mode_prev not in ('peak', 'centroid', 'radial'):
+        center_mode_prev = 'peak'
+    center_mode_var = ctk.StringVar(value=center_mode_prev)
     cellpose_model_var = ctk.StringVar(value=prev.get('cellpose_model', ''))
     status_var = ctk.StringVar(value="Ready")
     fit_mode_var = ctk.StringVar(value=prev_fit_mode)
@@ -381,6 +388,7 @@ def main():
                     cellpose_flow_threshold=cp_flow,
                     num_beads_avg=n_avg,
                     sample_fraction=min(100, max(1, sample_frac)),
+                    center_mode=center_mode_var.get(),
                     run_on_main=_run_on_main_and_wait,
                 )
             finally:
@@ -413,6 +421,7 @@ def main():
             'cellpose_flow_threshold': cp_flow,
             'num_beads_avg': n_avg,
             'sample_fraction': min(100, max(1, sample_frac)),
+            'center_mode': center_mode_var.get(),
             'show_advanced': show_advanced.get(),
         }
         if cellpose_path:
@@ -553,6 +562,15 @@ def main():
     box_size_label.pack(side="left", padx=(0, 8))
     box_entry = ctk.CTkEntry(frame_gen, textvariable=box_entry_var, width=50)
     box_entry.pack(side="left")
+    center_mode_label = ctk.CTkLabel(frame_gen, text="Center mode:")
+    center_mode_label.pack(side="left", padx=(16, 8))
+    center_mode_menu = ctk.CTkOptionMenu(
+        frame_gen,
+        values=["peak", "centroid", "radial"],
+        variable=center_mode_var,
+        width=110,
+    )
+    center_mode_menu.pack(side="left")
 
     # Background
     background_label = ctk.CTkLabel(left_frame, text="Background subtraction", font=sub)
@@ -872,6 +890,11 @@ def main():
         "per side). Default 15 px. Increase for large beads or high-mag objectives; "
         "decrease if beads are densely packed to avoid overlap.",
         is_child=True)
+    _add_setting_doc("center_mode", "Center mode",
+        "How XY center is refined after initial detection. peak: brightest local voxel "
+        "(default). centroid: intensity-weighted center. radial: radial-symmetry style "
+        "centering, often better for annular/hollow-looking beads.",
+        is_child=True)
     _add_setting_doc("num_beads_avg", "Percentage of beads to avg (1-100)",
         "Number of beads used for the average bead profile. Beads are ranked by "
         "distance from the median Z-FWHM, so the most representative beads are "
@@ -1128,6 +1151,8 @@ def main():
     _bind_hover(extraction_avg_label, "section_extraction_avg")
     _bind_hover(box_size_label, "box_size")
     _bind_hover(box_entry, "box_size")
+    _bind_hover(center_mode_label, "center_mode")
+    _bind_hover(center_mode_menu, "center_mode")
     _bind_hover(num_beads_label, "num_beads_avg")
     _bind_hover(num_beads_entry, "num_beads_avg")
     _bind_hover(background_label, "section_background")

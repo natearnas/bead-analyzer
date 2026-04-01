@@ -43,6 +43,10 @@ Five radio buttons (default: Blob):
 
 #### Extraction & averaging
 - **Box width (px)** – Pixels around bead center for Z-profile and crop (default: 15)
+- **Center mode** – XY center refinement strategy:
+  - `peak` (default): brightest local voxel, best for sub-resolution beads
+  - `centroid`: intensity-weighted center for filled/noisy larger beads
+  - `radial`: ring-friendly center for hollow/annular larger beads
 
 #### Background Subtraction
 - **Subtract background** – Interactive ROI: use the right mouse button to click and drag to draw a background region; close the window when done
@@ -120,6 +124,13 @@ Settings are automatically restored from your last session, so you only need to:
 - **StarDist**: Best when beads are relatively large (~15+ px diameter) and well-separated; on native Windows it is often CPU-heavy because it runs through TensorFlow
 - **Cellpose**: Best for dense/overlapping bead fields when beads are ~15+ px diameter; in this pipeline it is intended for bead-specific custom-trained models
 - **Manual**: Use when automatic detection fails, or for targeted analysis of specific beads
+
+## Center Mode Guidance
+
+- **Use `peak`** for tiny PSF-like beads and routine diffraction-limited measurements.
+- **Use `radial`** first for large beads that appear hollow/ring-like in XY projections.
+- **Use `centroid`** when beads are filled but asymmetric or noisy.
+- If centers look offset in diagnostics, keep detection settings fixed and compare the three center modes.
 
 ## Tips & Best Practices
 

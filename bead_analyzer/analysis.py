@@ -196,13 +196,36 @@ def _parabolic_peak(values, peak_idx, offset):
     return float(offset + peak_idx) + np.clip(shift, -0.5, 0.5)
 
 
-def _recenter_point(stack, x_c, y_c, half_box):
-    """Recenter point to local 3D maximum with sub-pixel refinement.
+def _weighted_centroid_2d(img_2d, x_offset, y_offset):
+    """Return intensity-weighted centroid in global coordinates."""
+    vals = np.asarray(img_2d, dtype=np.float32)
+    if vals.size == 0:
+        return float(x_offset), float(y_offset)
+    w = vals - float(np.min(vals))
+    w[w < 0] = 0
+    w_sum = float(np.sum(w))
+    if w_sum <= 1e-9:
+        # Fallback: geometric center of the local patch.
+        return float(x_offset + (vals.shape[1] - 1) / 2.0), float(y_offset + (vals.shape[0] - 1) / 2.0)
+    yy, xx = np.indices(vals.shape, dtype=np.float32)
+    cx = float(np.sum(w * xx) / w_sum) + float(x_offset)
+    cy = float(np.sum(w * yy) / w_sum) + float(y_offset)
+    return cx, cy
 
-    First finds the integer voxel peak, then refines X, Y to sub-pixel
-    precision using parabolic interpolation so that downstream
-    map_coordinates calls are not limited by pixel-snapping error.
-    """
+
+def _radial_center_2d(img_2d, x_offset, y_offset):
+    """Estimate center from gradient-magnitude symmetry (ring-friendly)."""
+    vals = np.asarray(img_2d, dtype=np.float32)
+    if vals.size == 0:
+        return float(x_offset), float(y_offset)
+    sm = gaussian_filter(vals, sigma=1.0)
+    gy, gx = np.gradient(sm)
+    gmag = np.hypot(gx, gy).astype(np.float32, copy=False)
+    return _weighted_centroid_2d(gmag, x_offset, y_offset)
+
+
+def _recenter_point(stack, x_c, y_c, half_box, center_mode='peak'):
+    """Recenter point using selected strategy: peak, centroid, or radial."""
     x_c_int, y_c_int = int(round(x_c)), int(round(y_c))
     y1_s = max(0, y_c_int - half_box)
     y2_s = min(stack.shape[1], y_c_int + half_box + 1)
@@ -215,6 +238,20 @@ def _recenter_point(stack, x_c, y_c, half_box):
     search_vol = stack[z1_s:z2_s, y1_s:y2_s, x1_s:x2_s]
     if search_vol.size == 0:
         return float(x_c_int), float(y_c_int)
+
+    mode = str(center_mode or 'peak').lower()
+    rel_z = int(np.clip(approx_z - z1_s, 0, max(0, search_vol.shape[0] - 1)))
+
+    if mode == 'centroid':
+        plane = search_vol[rel_z]
+        return _weighted_centroid_2d(plane, x1_s, y1_s)
+
+    if mode == 'radial':
+        z_lo = max(0, rel_z - 1)
+        z_hi = min(search_vol.shape[0], rel_z + 2)
+        slab = np.mean(search_vol[z_lo:z_hi], axis=0) if z_hi > z_lo else search_vol[rel_z]
+        return _radial_center_2d(slab, x1_s, y1_s)
+
     rel_z, rel_y, rel_x = np.unravel_index(np.argmax(search_vol), search_vol.shape)
 
     # Sub-pixel refinement along X and Y via parabolic interpolation
@@ -511,13 +548,18 @@ def run_manual(stack, scale_xy, scale_z, box_size=21, line_length=5.0,
     if callable(status_cb):
         status_cb(f"Processing beads (0/{n_pts})...")
     half_box = box_size // 2
+    center_mode = str(kwargs.get('center_mode', 'peak')).lower()
+    if center_mode not in ('peak', 'centroid', 'radial'):
+        center_mode = 'peak'
+    if callable(status_cb):
+        status_cb(f"Center mode: {center_mode}")
     results = []
     bead_volumes = []
     profiles = []
     for i, (x_c_orig, y_c_orig) in enumerate(pts):
         if callable(status_cb):
             status_cb(f"Processing beads ({i + 1}/{n_pts})...")
-        x_c, y_c = _recenter_point(stack, x_c_orig, y_c_orig, half_box)
+        x_c, y_c = _recenter_point(stack, x_c_orig, y_c_orig, half_box, center_mode=center_mode)
         x_c_int, y_c_int = int(round(x_c)), int(round(y_c))
         y1, y2 = max(0, y_c_int - half_box), min(stack.shape[1], y_c_int + half_box + 1)
         x1, x2 = max(0, x_c_int - half_box), min(stack.shape[2], x_c_int + half_box + 1)
@@ -724,13 +766,18 @@ def run_stardist(stack, scale_xy, scale_z, box_size=7, line_length=5.0,
     if callable(status_cb):
         status_cb(f"Processing beads (0/{n_pts})...")
     half_box = box_size // 2
+    center_mode = str(kwargs.get('center_mode', 'peak')).lower()
+    if center_mode not in ('peak', 'centroid', 'radial'):
+        center_mode = 'peak'
+    if callable(status_cb):
+        status_cb(f"Center mode: {center_mode}")
     results = []
     bead_volumes = []
     profiles = []
     for i, (x_c_raw, y_c_raw) in enumerate(pts):
         if callable(status_cb):
             status_cb(f"Processing beads ({i + 1}/{n_pts})...")
-        x_c, y_c = _recenter_point(stack, x_c_raw, y_c_raw, half_box)
+        x_c, y_c = _recenter_point(stack, x_c_raw, y_c_raw, half_box, center_mode=center_mode)
         x_c_int, y_c_int = int(round(x_c)), int(round(y_c))
         y1, y2 = max(0, y_c_int - half_box), min(stack.shape[1], y_c_int + half_box + 1)
         x1, x2 = max(0, x_c_int - half_box), min(stack.shape[2], x_c_int + half_box + 1)
@@ -933,6 +980,11 @@ def run_cellpose(stack, scale_xy, scale_z, model_path, box_size=15, line_length=
     img_h, img_w, z_d = stack.shape[1], stack.shape[2], stack.shape[0]
     z_search_min, z_search_max = (z_range[0], min(z_range[1], z_d)) if z_range else (0, z_d)
     half_box = box_size // 2
+    center_mode = str(kwargs.get('center_mode', 'peak')).lower()
+    if center_mode not in ('peak', 'centroid', 'radial'):
+        center_mode = 'peak'
+    if callable(status_cb):
+        status_cb(f"Center mode: {center_mode}")
     results = []
     bead_volumes = []
     bead_log = []
@@ -949,7 +1001,7 @@ def run_cellpose(stack, scale_xy, scale_z, model_path, box_size=15, line_length=
         else:
             x_c, y_c = p
             z_hint = None
-        x_c, y_c = _recenter_point(stack, x_c, y_c, half_box)
+        x_c, y_c = _recenter_point(stack, x_c, y_c, half_box, center_mode=center_mode)
         log_entry = {'id': i + 1, 'x_coord': x_c, 'y_coord': y_c, 'status': 'rejected', 'reason': ''}
         bead_volumes.append(np.array([]))
         x_i, y_i = int(round(x_c)), int(round(y_c))
@@ -1115,7 +1167,7 @@ def write_outputs(results, bead_volumes, mip, file_path, mode, scale_xy, scale_z
                   bead_log=None, na=None, fluorophore=None, gamma=1.0,
                   qa_min_snr=3.0, qa_min_symmetry=0.6, rejected=None,
                   stack=None,
-                  profiles=None):
+                  profiles=None, center_mode='peak'):
     """Write CSV, TXT summary, average bead, heatmap, detection overview, and summary figure."""
     file_path = Path(file_path)
     extra_meta = []
@@ -1123,6 +1175,7 @@ def write_outputs(results, bead_volumes, mip, file_path, mode, scale_xy, scale_z
         extra_meta.append(f"NA: {na}")
     if fluorophore:
         extra_meta.append(f"Fluorophore: {fluorophore}")
+    extra_meta.append(f"Center mode: {center_mode}")
 
     if mode == 'cellpose' and bead_log:
         log_df = pd.DataFrame(bead_log)
