@@ -1167,7 +1167,7 @@ def write_outputs(results, bead_volumes, mip, file_path, mode, scale_xy, scale_z
                   bead_log=None, na=None, fluorophore=None, gamma=1.0,
                   qa_min_snr=3.0, qa_min_symmetry=0.6, rejected=None,
                   stack=None,
-                  profiles=None, center_mode='peak'):
+                  profiles=None, center_mode='peak', run_settings=None):
     """Write CSV, TXT summary, average bead, heatmap, detection overview, and summary figure."""
     file_path = Path(file_path)
     extra_meta = []
@@ -1176,6 +1176,36 @@ def write_outputs(results, bead_volumes, mip, file_path, mode, scale_xy, scale_z
     if fluorophore:
         extra_meta.append(f"Fluorophore: {fluorophore}")
     extra_meta.append(f"Center mode: {center_mode}")
+
+    # Save a human-readable run settings report alongside other outputs.
+    settings_txt_path = file_path.with_name(f"{file_path.stem}_run_settings.txt")
+    settings_lines = [
+        "=" * 60,
+        "--- Bead Analyzer Run Settings ---",
+        "=" * 60,
+        f"Source: {file_path.name}",
+    ]
+    settings_dict = dict(run_settings) if isinstance(run_settings, dict) else {}
+    if not settings_dict:
+        settings_dict = {
+            'mode': mode,
+            'scale_xy': scale_xy,
+            'scale_z': scale_z,
+            'gamma': gamma,
+            'num_beads_avg': num_beads_avg,
+            'qa_min_snr': qa_min_snr,
+            'qa_min_symmetry': qa_min_symmetry,
+            'center_mode': center_mode,
+        }
+    settings_dict.setdefault('mode', mode)
+    settings_dict.setdefault('scale_xy', scale_xy)
+    settings_dict.setdefault('scale_z', scale_z)
+    settings_dict.setdefault('center_mode', center_mode)
+    for k in sorted(settings_dict):
+        settings_lines.append(f"{k}: {settings_dict[k]}")
+    with open(settings_txt_path, 'w') as f:
+        f.write("\n".join(settings_lines))
+    print(f"Settings saved to: {settings_txt_path}")
 
     if mode == 'cellpose' and bead_log:
         log_df = pd.DataFrame(bead_log)
@@ -1237,13 +1267,15 @@ def write_outputs(results, bead_volumes, mip, file_path, mode, scale_xy, scale_z
             key = next((k for k in candidates if k in df.columns), None)
             if key and df[key].notna().any():
                 vals = df[key].dropna()
-                method_lines.append(f"  Avg FWHM-{axis.upper()}: {vals.mean():.3f} ± {vals.std():.3f} µm (n={len(vals)})")
+                std_text = f"{vals.std():.3f}" if len(vals) > 1 else "N/A"
+                method_lines.append(f"  Avg FWHM-{axis.upper()}: {vals.mean():.3f} ± {std_text} µm (n={len(vals)})")
         if method_lines:
             lines.append(f"\n--- {method} ---")
             lines.extend(method_lines)
     if 'fit_3d_residual' in df.columns and df['fit_3d_residual'].notna().any():
         resid = df['fit_3d_residual'].dropna()
-        lines.append(f"\n3D Fit residual: {resid.mean():.3f} ± {resid.std():.3f}")
+        resid_std_text = f"{resid.std():.3f}" if len(resid) > 1 else "N/A"
+        lines.append(f"\n3D Fit residual: {resid.mean():.3f} ± {resid_std_text}")
     if 'qa_z_snr' in df.columns or 'qa_z_symmetry' in df.columns:
         qa_df = df[['id']].copy()
         if 'qa_z_snr' in df.columns:

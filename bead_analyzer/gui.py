@@ -33,7 +33,7 @@ def _run_analysis(input_file, output_dir, mode, scale_xy, scale_z, na, fluoropho
                   local_background=False, robust_fit=False,
                   cellpose_min_size=3, cellpose_flow_threshold=0.4,
                   num_beads_avg=20, sample_fraction=100, center_mode='peak',
-                  run_on_main=None):
+                  run_on_main=None, run_settings=None):
     """Run analysis in background thread. run_on_main: callable to run interactive matplotlib on main thread."""
     import tifffile
     from . import analysis
@@ -107,6 +107,7 @@ def _run_analysis(input_file, output_dir, mode, scale_xy, scale_z, na, fluoropho
             profiles=profiles,
             num_beads_avg=num_beads_avg,
             center_mode=center_mode,
+            run_settings=run_settings,
         )
         rej_msg = f" ({len(rejected)} rejected)" if rejected else ""
         status_callback(f"Done. {len(results)} beads analyzed{rej_msg}.")
@@ -390,6 +391,7 @@ def main():
                     sample_fraction=min(100, max(1, sample_frac)),
                     center_mode=center_mode_var.get(),
                     run_on_main=_run_on_main_and_wait,
+                    run_settings=settings,
                 )
             finally:
                 app.after(0, lambda: analyze_btn.configure(state="normal"))

@@ -177,6 +177,7 @@ def main():
         output_dir = Path(args.output_dir)
         output_dir.mkdir(parents=True, exist_ok=True)
         output_path = output_dir / input_path.name
+    effective_sample_fraction = min(100, max(1, args.sample_fraction))
 
     kwargs = {
         'channel': args.channel,
@@ -206,8 +207,12 @@ def main():
         'output_dir': str(output_path.parent),
         'local_background': args.local_background,
         'robust_fit': args.robust_fit,
-        'sample_fraction': min(100, max(1, args.sample_fraction)),
+        'sample_fraction': effective_sample_fraction,
     }
+    run_settings = vars(args).copy()
+    run_settings['input_file'] = str(input_path)
+    run_settings['output_dir'] = str(output_path.parent)
+    run_settings['sample_fraction'] = effective_sample_fraction
 
     rejected = []
     if args.mode == 'manual':
@@ -285,6 +290,7 @@ def main():
         rejected=rejected,
         profiles=profiles,
         center_mode=args.center_mode,
+        run_settings=run_settings,
     )
     print("\nAnalysis complete.")
     return 0
