@@ -31,6 +31,7 @@ def _run_analysis(input_file, output_dir, mode, scale_xy, scale_z, na, fluoropho
                   fit_3d=False, save_diagnostics=False, qa_auto_reject=False,
                   cellpose_do_3d=False, anisotropy=None, use_blob_fallback=False,
                   local_background=False, robust_fit=False,
+                  trackpy_diameter=5, trackpy_minmass=5000, trackpy_separation=None,
                   cellpose_min_size=3, cellpose_flow_threshold=0.4,
                   num_beads_avg=20, sample_fraction=100, center_mode='peak',
                   run_on_main=None, run_settings=None):
@@ -78,6 +79,9 @@ def _run_analysis(input_file, output_dir, mode, scale_xy, scale_z, na, fluoropho
         elif mode == 'trackpy':
             status_callback("Trackpy detection...")
             kwargs['review_detection'] = review_detection
+            kwargs['trackpy_diameter'] = trackpy_diameter
+            kwargs['trackpy_minmass'] = trackpy_minmass
+            kwargs['trackpy_separation'] = trackpy_separation
             results, bead_volumes, mip, profiles, rejected = analysis.run_trackpy(stack, **kwargs)
             bead_log = None
         elif mode == 'stardist':
@@ -264,6 +268,9 @@ def main():
     blob_fallback_var = ctk.BooleanVar(value=prev.get('use_blob_fallback', False))
     local_background_var = ctk.BooleanVar(value=prev.get('local_background', False))
     robust_fit_var = ctk.BooleanVar(value=prev.get('robust_fit', True))
+    trackpy_diameter_var = ctk.StringVar(value=str(prev.get('trackpy_diameter', '5')))
+    trackpy_minmass_var = ctk.StringVar(value=str(prev.get('trackpy_minmass', '5000')))
+    trackpy_separation_var = ctk.StringVar(value=str(prev.get('trackpy_separation', '')) if prev.get('trackpy_separation') is not None else '')
     cellpose_min_size_var = ctk.StringVar(value=str(prev.get('cellpose_min_size', '3')))
     cellpose_flow_threshold_var = ctk.StringVar(value=str(prev.get('cellpose_flow_threshold', '0.4')))
     prev_num_beads_avg = prev.get('num_beads_avg', 20)
@@ -344,10 +351,13 @@ def main():
             aniso = float(anisotropy_var.get()) if anisotropy_var.get().strip() else None
             cp_min_size = int(cellpose_min_size_var.get())
             cp_flow = float(cellpose_flow_threshold_var.get())
+            tp_diameter = int(trackpy_diameter_var.get())
+            tp_minmass = float(trackpy_minmass_var.get())
+            tp_separation = int(trackpy_separation_var.get()) if trackpy_separation_var.get().strip() else None
             n_avg = max(1, int(num_beads_avg_var.get()))
             sample_frac = float(sample_fraction_var.get())
         except ValueError:
-            messagebox.showerror("Error", "Scale XY, Z, channel, QA, box width, anisotropy, num beads avg, sample fraction, and Cellpose params must be valid numbers.")
+            messagebox.showerror("Error", "Scale XY, Z, channel, QA, box width, anisotropy, num beads avg, sample fraction, Trackpy params, and Cellpose params must be valid numbers.")
             return
         num_beads_avg_var.set(str(n_avg))
         out = output_dir.get() or str(Path(inp).parent)
@@ -385,6 +395,9 @@ def main():
                     use_blob_fallback=blob_fallback_var.get(),
                     local_background=local_background_var.get(),
                     robust_fit=robust_fit_var.get(),
+                    trackpy_diameter=tp_diameter,
+                    trackpy_minmass=tp_minmass,
+                    trackpy_separation=tp_separation,
                     cellpose_min_size=cp_min_size,
                     cellpose_flow_threshold=cp_flow,
                     num_beads_avg=n_avg,
@@ -419,6 +432,9 @@ def main():
             'use_blob_fallback': blob_fallback_var.get(),
             'local_background': local_background_var.get(),
             'robust_fit': robust_fit_var.get(),
+            'trackpy_diameter': tp_diameter,
+            'trackpy_minmass': tp_minmass,
+            'trackpy_separation': tp_separation,
             'cellpose_min_size': cp_min_size,
             'cellpose_flow_threshold': cp_flow,
             'num_beads_avg': n_avg,
@@ -626,13 +642,32 @@ def main():
     adv_right = ctk.CTkFrame(advanced_container, fg_color="transparent")
     adv_right.pack(side="left", fill="y", anchor="nw")
 
-    # Left column: Detection review + StarDist options
+    # Left column: Detection review + Trackpy + StarDist options
     detection_header = ctk.CTkLabel(adv_left, text="Detection review", font=ctk.CTkFont(weight="bold"))
     detection_header.pack(anchor="w", **pad)
     frame_det = ctk.CTkFrame(adv_left, fg_color="transparent")
     frame_det.pack(fill="x", **pad)
     review_detection_cb = ctk.CTkCheckBox(frame_det, text="Review detection overlay", variable=review_detection_var)
     review_detection_cb.pack(side="left", padx=(0, 16))
+
+    trackpy_header = ctk.CTkLabel(adv_left, text="Trackpy options", font=ctk.CTkFont(weight="bold"))
+    trackpy_header.pack(anchor="w", **pad)
+    frame_trackpy = ctk.CTkFrame(adv_left, fg_color="transparent")
+    frame_trackpy.pack(fill="x", **pad)
+    tp_diameter_label = ctk.CTkLabel(frame_trackpy, text="Diameter (px):")
+    tp_diameter_label.pack(side="left", padx=(0, 8))
+    tp_diameter_entry = ctk.CTkEntry(frame_trackpy, textvariable=trackpy_diameter_var, width=50)
+    tp_diameter_entry.pack(side="left", padx=(0, 16))
+    tp_minmass_label = ctk.CTkLabel(frame_trackpy, text="Minmass:")
+    tp_minmass_label.pack(side="left", padx=(0, 8))
+    tp_minmass_entry = ctk.CTkEntry(frame_trackpy, textvariable=trackpy_minmass_var, width=70)
+    tp_minmass_entry.pack(side="left")
+    frame_trackpy_sep = ctk.CTkFrame(adv_left, fg_color="transparent")
+    frame_trackpy_sep.pack(fill="x", **pad)
+    tp_sep_label = ctk.CTkLabel(frame_trackpy_sep, text="Separation (px, optional):")
+    tp_sep_label.pack(side="left", padx=(0, 8))
+    tp_sep_entry = ctk.CTkEntry(frame_trackpy_sep, textvariable=trackpy_separation_var, width=70)
+    tp_sep_entry.pack(side="left")
 
     stardist_header = ctk.CTkLabel(adv_left, text="StarDist options", font=ctk.CTkFont(weight="bold"))
     stardist_header.pack(anchor="w", **pad)
@@ -691,6 +726,11 @@ def main():
             'widgets': [blob_fallback_cb],
             'labels': [],
         },
+        'trackpy': {
+            'header': trackpy_header,
+            'widgets': [tp_diameter_entry, tp_minmass_entry, tp_sep_entry],
+            'labels': [tp_diameter_label, tp_minmass_label, tp_sep_label],
+        },
         'cellpose': {
             'header': cellpose_header,
             'widgets': [cp_model_entry, cp_model_browse, cp_do_3d_cb,
@@ -743,6 +783,8 @@ def main():
         if is_advanced:
             detection_on = mode in ('blob', 'trackpy', 'stardist')
             _set_section_state('detection', detection_on)
+            trackpy_on = mode == 'trackpy'
+            _set_section_state('trackpy', trackpy_on)
             stardist_on = mode == 'stardist'
             _set_section_state('stardist', stardist_on)
             cellpose_on = mode == 'cellpose'
@@ -946,7 +988,7 @@ def main():
     _add_setting_doc("section_advanced", "Detection review",
         "Visual verification of automatic detections before committing to full analysis.")
     _add_setting_doc("show_advanced", "Show Advanced Options",
-        "Reveals StarDist/Cellpose mode buttons and their configuration sections. "
+        "Reveals Trackpy/StarDist/Cellpose configuration sections. "
         "Also widens the window to a two-column advanced layout.",
         is_child=True)
     _add_setting_doc("review_detection", "Review detection overlay",
@@ -956,6 +998,21 @@ def main():
         is_child=True)
     _add_setting_doc("section_stardist", "StarDist options",
         "Controls specific to the StarDist deep-learning detection mode.")
+    _add_setting_doc("section_trackpy", "Trackpy options",
+        "Controls for Trackpy bandpass + centroid detection. Important for large beads "
+        "or high-magnification datasets where default small-bead values underperform.")
+    _add_setting_doc("trackpy_diameter", "Trackpy Diameter (px)",
+        "Expected feature diameter in pixels (odd integer). For large resolved beads, "
+        "set this near the apparent bead diameter in pixels.",
+        is_child=True)
+    _add_setting_doc("trackpy_minmass", "Trackpy Minmass",
+        "Minimum integrated brightness for accepted features. Increase to suppress "
+        "dim/background detections; decrease if true beads are missed.",
+        is_child=True)
+    _add_setting_doc("trackpy_separation", "Trackpy Separation (px, optional)",
+        "Minimum spacing between feature centers. Leave blank for Trackpy default "
+        "(diameter + 1). Increase to avoid splitting one large bead into multiple detections.",
+        is_child=True)
     _add_setting_doc("blob_fallback", "Blob fallback",
         "If StarDist detects zero beads, automatically falls back to the Blob "
         "detector instead of aborting. Useful as a safety net when StarDist "
@@ -1171,6 +1228,13 @@ def main():
     _bind_hover(sample_fraction_entry, "sample_fraction")
     _bind_hover(detection_header, "section_advanced")
     _bind_hover(review_detection_cb, "review_detection")
+    _bind_hover(trackpy_header, "section_trackpy")
+    _bind_hover(tp_diameter_label, "trackpy_diameter")
+    _bind_hover(tp_diameter_entry, "trackpy_diameter")
+    _bind_hover(tp_minmass_label, "trackpy_minmass")
+    _bind_hover(tp_minmass_entry, "trackpy_minmass")
+    _bind_hover(tp_sep_label, "trackpy_separation")
+    _bind_hover(tp_sep_entry, "trackpy_separation")
     _bind_hover(stardist_header, "section_stardist")
     _bind_hover(blob_fallback_cb, "blob_fallback")
     _bind_hover(cellpose_header, "section_cellpose")

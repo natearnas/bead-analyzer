@@ -70,6 +70,12 @@ Or: `python -m bead_analyzer.cli INPUT.tif ...`
 - `--center_mode centroid`: good for filled large beads with noise/asymmetry.
 - `--center_mode radial`: best first choice for ring-like or hollow-looking large beads where peak-based centering drifts toward the shell.
 
+## Recommended Starting Settings By Bead Type
+
+- **Small sub-resolution beads**: Blob mode, `--box_size 7-15`, `--center_mode peak`.
+- **Large filled beads**: Trackpy mode with larger `--trackpy_diameter`/`--trackpy_separation`, `--box_size ~51`, `--center_mode centroid`.
+- **Large hollow/annular beads**: Trackpy mode with larger `--trackpy_diameter`/`--trackpy_separation`, `--box_size ~61`, `--center_mode radial`.
+
 ### Manual
 
 - `--points_file` – Load coordinates from CSV/TXT (skip interactive click)
@@ -87,6 +93,7 @@ Or: `python -m bead_analyzer.cli INPUT.tif ...`
 - `--max_z_fwhm` – Reject beads with Z-FWHM above this (µm)
 - `--trackpy_diameter` – Expected bead diameter in pixels (odd integer)
 - `--trackpy_minmass`, `--trackpy_separation` – Brightness and spacing constraints
+- GUI note: these Trackpy controls are also available under **Show Advanced Options → Trackpy options**.
 
 ### StarDist
 

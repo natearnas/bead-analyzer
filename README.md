@@ -91,6 +91,7 @@ Add `--na 1.4 --fluorophore "FITC"` to record experimental metadata in the summa
 - **StarDist/Cellpose path**: best when beads span roughly 15+ pixels in diameter.
 - **Cellpose 3D**: for anisotropic z-stacks, use `--cellpose_do_3d --anisotropy (z_spacing/xy_spacing)`.
 - **Center refinement for large annular beads**: try `--center_mode radial` first; use `--center_mode centroid` for filled but noisy beads.
+- **Trackpy tuning for large beads**: increase `trackpy_diameter` and `trackpy_separation`; these are available in GUI Advanced options and CLI.
 
 ### Detector Caveats And Platform Notes
 
@@ -194,6 +195,32 @@ Use `--save_diagnostics` to write a PNG per bead to `bead_diagnostics/` showing:
 This is invaluable for verifying that the pipeline is measuring what you expect.
 
 ## Recommended Options By Use Case
+
+### Small sub-resolution beads (PSF-like spots)
+```bash
+bead-analyzer beads.tif --mode blob --scale_xy 0.26 --scale_z 2 \
+  --box_size 11 --center_mode peak --fit_gaussian --qa_auto_reject
+```
+- Start with Blob (or Trackpy if background gradients are strong).
+- Keep crop small (`--box_size` ~7-15 px) and center mode `peak`.
+
+### Large filled beads (resolved, non-hollow)
+```bash
+bead-analyzer beads.tif --mode trackpy --scale_xy 0.0645 --scale_z 0.16 \
+  --trackpy_diameter 31 --trackpy_separation 33 --box_size 51 \
+  --center_mode centroid --fit_gaussian
+```
+- Increase Trackpy diameter/separation to match bead size in pixels.
+- Use `centroid` when beads are broad/filled and `peak` drifts to local hot spots.
+
+### Large hollow/annular beads
+```bash
+bead-analyzer beads.tif --mode trackpy --scale_xy 0.0645 --scale_z 0.16 \
+  --trackpy_diameter 39 --trackpy_separation 41 --box_size 61 \
+  --center_mode radial --fit_gaussian
+```
+- Use `radial` first for ring-like beads (best geometric centering in many cases).
+- If over-splitting occurs, raise `trackpy_separation` further.
 
 ### Standard confocal bead slide (high SNR, uniform background)
 ```bash

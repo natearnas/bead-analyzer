@@ -65,6 +65,10 @@ Check **Show Advanced Options** to reveal detector-specific controls. The window
 
 **Left column**
 - **Detection review** (enabled for Blob, Trackpy, StarDist): **Review detection overlay** – Show detected points before processing (press 'y' to accept, 'n' to abort)
+- **Trackpy options** (enabled for Trackpy only):
+  - **Diameter (px)** – Expected feature diameter (odd integer; use larger values for large resolved beads)
+  - **Minmass** – Minimum integrated feature brightness (raise to suppress dim false detections)
+  - **Separation (px, optional)** – Minimum center spacing; increase to avoid split detections
 - **StarDist options** (enabled for StarDist only): **Blob fallback** – Fall back to blob detector if StarDist finds 0 beads
 
 **Right column**
@@ -132,6 +136,23 @@ Settings are automatically restored from your last session, so you only need to:
 - **Use `centroid`** when beads are filled but asymmetric or noisy.
 - If centers look offset in diagnostics, keep detection settings fixed and compare the three center modes.
 
+## Recommended Starting Settings By Bead Type
+
+- **Small sub-resolution beads**
+  - Mode: **Blob** (or Trackpy for gradient backgrounds)
+  - Box width: **7-15 px**
+  - Center mode: **peak**
+- **Large filled resolved beads**
+  - Mode: **Trackpy**
+  - Advanced Trackpy options: increase **Diameter** and **Separation** near bead size in pixels
+  - Box width: **~51 px** (increase if needed)
+  - Center mode: **centroid**
+- **Large hollow/annular beads**
+  - Mode: **Trackpy**
+  - Advanced Trackpy options: larger **Diameter/Separation** (e.g., around apparent bead diameter)
+  - Box width: **~61 px**
+  - Center mode: **radial**
+
 ## Tips & Best Practices
 
 ### Getting Good Results
@@ -150,7 +171,7 @@ Settings are automatically restored from your last session, so you only need to:
 6. Click **Analyze beads**
 
 ### Common Adjustments
-- **Too few beads detected?** Try Review detection overlay, then lower blob threshold or adjust trackpy parameters via CLI
+- **Too few beads detected?** Try Review detection overlay, then lower blob threshold or adjust Trackpy Diameter/Minmass/Separation in Advanced options
 - **Too many false detections?** Increase QA thresholds or enable Auto-reject
 - **Beads at image edges causing problems?** Enable "Robust fit" to handle edge clipping
 - **Want faster processing?** Use "No fit" mode (prominence-based width only), or set **Analyze % of beads** below 100 to analyze a random subset of detected beads
