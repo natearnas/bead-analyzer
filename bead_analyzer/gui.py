@@ -170,7 +170,7 @@ def main():
     HEIGHT_COMPACT = 1040      # core controls only
     HEIGHT_EXPANDED = 1260     # core + two-column advanced options visible
     WIDTH_BASE = 420           # controls panel only (compact)
-    WIDTH_ADVANCED = 550       # controls panel when advanced options visible (wider)
+    WIDTH_ADVANCED = 640       # controls panel when advanced options visible (wider)
     DOCS_PANEL_WIDTH = 820
     launch_x = max((app.winfo_screenwidth() - WIDTH_BASE) // 2, 0)
     launch_y = 10
@@ -677,7 +677,11 @@ def main():
     blob_fallback_cb.pack(side="left")
 
     # Right column: Cellpose options
-    cellpose_header = ctk.CTkLabel(adv_right, text="Cellpose options (requires model file)", font=ctk.CTkFont(weight="bold"))
+    cellpose_header = ctk.CTkLabel(
+        adv_right,
+        text="CellPose options (requires model file)",
+        font=ctk.CTkFont(weight="bold"),
+    )
     cellpose_header.pack(anchor="w", **pad)
     frame_cp_model = ctk.CTkFrame(adv_right, fg_color="transparent")
     frame_cp_model.pack(fill="x", **pad)
@@ -745,8 +749,9 @@ def main():
     def _set_section_state(name, enabled):
         sec = _sections[name]
         state = "normal" if enabled else "disabled"
+        # Keep section headers readable/bold-looking even when controls are disabled.
+        sec['header'].configure(text_color=_default_label_color)
         color = _default_label_color if enabled else _disabled_color
-        sec['header'].configure(text_color=color)
         for w in sec['widgets']:
             w.configure(state=state)
         for lbl in sec['labels']:
@@ -1069,6 +1074,14 @@ def main():
          "Set Min size to filter debris and lower Flow threshold (0.2\u20130.3) for stricter "
          "mask quality. Use Native 3D if beads overlap in Z. Reduce box width if crops "
          "overlap neighboring beads."),
+        ("Large filled beads",
+         "Use Trackpy with larger feature sizing: set Diameter near bead size in pixels, "
+         "set Separation close to Diameter+1, and increase Box width (around 51 px, then tune). "
+         "Use Center mode = centroid. Keep Review detection overlay ON while tuning."),
+        ("Large hollow / annular beads",
+         "Use Trackpy with larger Diameter/Separation and a larger Box width (around 61 px). "
+         "Use Center mode = radial so centering follows ring symmetry rather than the brightest shell voxel. "
+         "If one bead is split into several detections, increase Separation."),
         ("Small sub-resolution beads",
          "Use Blob or Trackpy (not StarDist/Cellpose, which need ~15+ px beads). "
          "Keep box width small (7\u201311 px). 1D Gaussian is usually sufficient; 3D Gaussian "
@@ -1096,10 +1109,18 @@ def main():
             docs_toggle_btn.configure(text="Docs ▸")
         else:
             app.update_idletasks()
-            x = app.winfo_x() + app.winfo_width() + 8
+            screen_w = app.winfo_screenwidth()
+            x_right = app.winfo_x() + app.winfo_width() + 8
+            x_left = app.winfo_x() - DOCS_PANEL_WIDTH - 8
+            # Prefer right side, but if that would exceed screen width place docs to left.
+            if x_right + DOCS_PANEL_WIDTH <= screen_w:
+                x = x_right
+            else:
+                x = max(0, x_left)
             y = app.winfo_y()
             docs_window.geometry(f"{DOCS_PANEL_WIDTH}x{app.winfo_height()}+{x}+{y}")
             docs_window.deiconify()
+            docs_window.lift()
             docs_open_var.set(True)
             docs_toggle_btn.configure(text="Docs ◂")
 
