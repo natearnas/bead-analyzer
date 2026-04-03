@@ -50,8 +50,8 @@ def main():
     parser.add_argument("--channel", type=int, default=0)
     parser.add_argument("--box_size", type=int, default=15)
     parser.add_argument("--center_mode", type=str, default="peak",
-                        choices=["peak", "centroid", "radial"],
-                        help="Center refinement mode: peak (default), centroid, or radial")
+                        choices=["peak", "centroid", "radial", "edge"],
+                        help="Center refinement mode: peak (default), centroid, radial, or edge")
     parser.add_argument("--line_length", type=float, default=5.0)
     parser.add_argument("--z_smooth", type=float, default=None)
     parser.add_argument("--detrend", action="store_true")

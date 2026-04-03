@@ -13,10 +13,12 @@
 
 import argparse
 from pathlib import Path
-import tifffile
-import numpy as np
+
 import matplotlib.pyplot as plt
+import numpy as np
+import tifffile
 from skimage.segmentation import flood
+
 
 def main():
     parser = argparse.ArgumentParser(description="Create 2D training masks for bead segmentation.")

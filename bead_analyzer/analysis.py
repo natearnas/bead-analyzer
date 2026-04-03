@@ -13,39 +13,40 @@ Unified FWHM analysis pipeline for manual, blob, trackpy, StarDist, and Cellpose
 """
 
 import gc
-import numpy as np
 from pathlib import Path
-from scipy.ndimage import map_coordinates, zoom, shift, gaussian_filter
-from scipy import signal
-from scipy.signal import find_peaks
-import tifffile
-import pandas as pd
-import matplotlib.pyplot as plt
-from matplotlib.colors import PowerNorm
 
+import matplotlib.pyplot as plt
+import numpy as np
+import pandas as pd
+import tifffile
+from matplotlib.colors import PowerNorm
+from scipy import signal
+from scipy.ndimage import gaussian_filter, gaussian_filter1d, map_coordinates, shift, zoom
+from scipy.signal import find_peaks
+
+from . import detectors
 from .core import (
-    RectangleDrawer,
     INTERACTIVE_PREVIEW_NOTE,
+    RectangleDrawer,
     add_interaction_key,
     add_left_drag_pan,
     add_mousewheel_zoom,
     calculate_fwhm_prominence,
-    fit_gaussian_fwhm,
+    filter_by_qa,
     fit_gaussian_3d,
+    fit_gaussian_fwhm,
+    gaussian_func,
     make_preview_image,
     preview_rect_to_full,
     preview_to_full_point,
     reject_outliers_mad,
-    filter_by_qa,
-    gaussian_func,
 )
-from . import detectors
 
 
 def _figure_agg(figsize):
     """Create a Figure with Agg canvas. Safe to use from a background thread (no Tk)."""
-    from matplotlib.figure import Figure
     from matplotlib.backends.backend_agg import FigureCanvasAgg
+    from matplotlib.figure import Figure
     fig = Figure(figsize=figsize)
     FigureCanvasAgg(fig)
     return fig
@@ -224,8 +225,41 @@ def _radial_center_2d(img_2d, x_offset, y_offset):
     return _weighted_centroid_2d(gmag, x_offset, y_offset)
 
 
+def _edge_center_xy(search_vol, rel_z, x_offset, y_offset):
+    """Estimate XY center from a gradient-weighted slab around rel_z."""
+    z_lo = max(0, rel_z - 1)
+    z_hi = min(search_vol.shape[0], rel_z + 2)
+    slab = np.mean(search_vol[z_lo:z_hi], axis=0) if z_hi > z_lo else search_vol[rel_z]
+    return _radial_center_2d(slab, x_offset, y_offset)
+
+
+def _edge_midpoint_z(z_profile, default_z):
+    """Estimate Z center from opposing edge transitions in a 1D profile."""
+    prof = np.asarray(z_profile, dtype=np.float32)
+    if prof.size < 7 or not np.all(np.isfinite(prof)):
+        return int(default_z)
+    sm = gaussian_filter1d(prof, sigma=1.0)
+    dz = np.gradient(sm)
+    edge_strength = np.abs(dz).astype(np.float32, copy=False)
+    peak = int(np.argmax(sm))
+    if peak <= 1 or peak >= edge_strength.size - 2:
+        return int(default_z)
+    left = int(np.argmax(edge_strength[:peak])) if peak > 0 else -1
+    right_local = int(np.argmax(edge_strength[peak + 1:])) if peak + 1 < edge_strength.size else -1
+    if left < 0 or right_local < 0:
+        return int(default_z)
+    right = right_local + peak + 1
+    if right <= left + 1:
+        return int(default_z)
+    contrast = float(np.max(sm) - np.min(sm))
+    edge_floor = max(1e-6, 0.03 * contrast)
+    if edge_strength[left] < edge_floor or edge_strength[right] < edge_floor:
+        return int(default_z)
+    return int(np.clip(round((left + right) / 2.0), 0, prof.size - 1))
+
+
 def _recenter_point(stack, x_c, y_c, half_box, center_mode='peak'):
-    """Recenter point using selected strategy: peak, centroid, or radial."""
+    """Recenter point using selected strategy: peak, centroid, radial, or edge."""
     x_c_int, y_c_int = int(round(x_c)), int(round(y_c))
     y1_s = max(0, y_c_int - half_box)
     y2_s = min(stack.shape[1], y_c_int + half_box + 1)
@@ -247,10 +281,18 @@ def _recenter_point(stack, x_c, y_c, half_box, center_mode='peak'):
         return _weighted_centroid_2d(plane, x1_s, y1_s)
 
     if mode == 'radial':
-        z_lo = max(0, rel_z - 1)
-        z_hi = min(search_vol.shape[0], rel_z + 2)
-        slab = np.mean(search_vol[z_lo:z_hi], axis=0) if z_hi > z_lo else search_vol[rel_z]
-        return _radial_center_2d(slab, x1_s, y1_s)
+        return _edge_center_xy(search_vol, rel_z, x1_s, y1_s)
+
+    if mode == 'edge':
+        sm3d = gaussian_filter(search_vol.astype(np.float32, copy=False), sigma=1.0)
+        gz, gy, gx = np.gradient(sm3d)
+        gmag3d = np.sqrt(gx * gx + gy * gy + gz * gz).astype(np.float32, copy=False)
+        z_edge_prof = np.mean(gmag3d, axis=(1, 2))
+        if z_edge_prof.size and np.all(np.isfinite(z_edge_prof)) and float(np.max(z_edge_prof) - np.min(z_edge_prof)) > 1e-6:
+            rel_z_edge = int(np.argmax(z_edge_prof))
+        else:
+            rel_z_edge = rel_z
+        return _edge_center_xy(search_vol, rel_z_edge, x1_s, y1_s)
 
     rel_z, rel_y, rel_x = np.unravel_index(np.argmax(search_vol), search_vol.shape)
 
@@ -264,17 +306,20 @@ def _recenter_point(stack, x_c, y_c, half_box, center_mode='peak'):
 
 
 def _save_bead_diagnostic(bead_id, volume, z_profile, x_profile, y_profile,
-                          scale_xy, scale_z, fwhm_result, output_dir, 
-                          fit_gaussian=False, fit_3d_result=None):
+                          scale_xy, scale_z, fwhm_result, output_dir,
+                          fit_gaussian=False, fit_3d_result=None,
+                          method_center_x_px=None, method_center_y_px=None,
+                          method_center_z_profile_px=None, method_center_z_volume_px=None):
     """
     Generate and save a diagnostic plot for a single bead.
-    
+
     Uses Agg backend so this can run from a worker thread without creating GUI
     windows or Tk icons. Shows Z/X/Y profiles with FWHM markers, XY/XZ/YZ
     projections, and optionally Gaussian fits.
     """
-    from matplotlib.figure import Figure
     from matplotlib.backends.backend_agg import FigureCanvasAgg
+    from matplotlib.figure import Figure
+    from matplotlib.lines import Line2D
 
     output_dir = Path(output_dir)
     diag_dir = output_dir / "bead_diagnostics"
@@ -283,11 +328,11 @@ def _save_bead_diagnostic(bead_id, volume, z_profile, x_profile, y_profile,
     fig = Figure(figsize=(14, 10))
     FigureCanvasAgg(fig)
     gs = fig.add_gridspec(3, 3, hspace=0.35, wspace=0.3)
-    
+
     z_ax = np.arange(len(z_profile)) * scale_z
     x_ax = np.arange(len(x_profile)) * scale_xy
     y_ax = np.arange(len(y_profile)) * scale_xy
-    
+
     ax_z = fig.add_subplot(gs[0, 0])
     ax_z.plot(z_ax, z_profile, 'b-', lw=1.5, label='Z profile')
     if fwhm_result and 'fwhm_z_prom_um' in fwhm_result:
@@ -301,10 +346,14 @@ def _save_bead_diagnostic(bead_id, volume, z_profile, x_profile, y_profile,
             half_max = (np.max(z_profile) + np.min(z_profile)) / 2
         ax_z.axhline(half_max, color='r', ls='--', alpha=0.7, label=f'FWHM={fwhm_z:.2f}µm')
         ax_z.axvline(z_ax[peak_idx], color='g', ls=':', alpha=0.5)
+    if method_center_z_profile_px is not None and len(z_profile):
+        z_idx = int(np.clip(round(method_center_z_profile_px), 0, len(z_profile) - 1))
+        ax_z.axvline(z_ax[z_idx], color='c', ls='-', lw=2.2, alpha=0.9, label='Method center (Z)')
     if fit_gaussian and fwhm_result and 'fwhm_z_gauss_um' in fwhm_result and fwhm_result['fwhm_z_gauss_um']:
         try:
-            from scipy.optimize import curve_fit, OptimizeWarning
             import warnings
+
+            from scipy.optimize import OptimizeWarning, curve_fit
             pk = np.argmax(z_profile)
             hw = min(10, len(z_profile) // 2)
             xs = np.arange(max(0, pk - hw), min(len(z_profile), pk + hw + 1))
@@ -322,7 +371,7 @@ def _save_bead_diagnostic(bead_id, volume, z_profile, x_profile, y_profile,
     ax_z.set_ylabel('Intensity')
     ax_z.set_title('Z Profile')
     ax_z.legend(loc='upper right', fontsize=8)
-    
+
     ax_x = fig.add_subplot(gs[0, 1])
     ax_x.plot(x_ax, x_profile, 'g-', lw=1.5, label='X profile')
     if fwhm_result and 'fwhm_x_prom_um' in fwhm_result:
@@ -336,8 +385,9 @@ def _save_bead_diagnostic(bead_id, volume, z_profile, x_profile, y_profile,
         ax_x.axhline(half_max, color='r', ls='--', alpha=0.7, label=f'FWHM={fwhm_x:.2f}µm')
     if fit_gaussian and fwhm_result and 'fwhm_x_gauss_um' in fwhm_result and fwhm_result['fwhm_x_gauss_um']:
         try:
-            from scipy.optimize import curve_fit, OptimizeWarning
             import warnings
+
+            from scipy.optimize import OptimizeWarning, curve_fit
             pk = np.argmax(x_profile)
             hw = min(10, len(x_profile) // 2)
             xs = np.arange(max(0, pk - hw), min(len(x_profile), pk + hw + 1))
@@ -355,7 +405,7 @@ def _save_bead_diagnostic(bead_id, volume, z_profile, x_profile, y_profile,
     ax_x.set_ylabel('Intensity')
     ax_x.set_title('X Profile')
     ax_x.legend(loc='upper right', fontsize=8)
-    
+
     ax_y = fig.add_subplot(gs[0, 2])
     ax_y.plot(y_ax, y_profile, 'm-', lw=1.5, label='Y profile')
     if fwhm_result and 'fwhm_y_prom_um' in fwhm_result:
@@ -369,8 +419,9 @@ def _save_bead_diagnostic(bead_id, volume, z_profile, x_profile, y_profile,
         ax_y.axhline(half_max, color='r', ls='--', alpha=0.7, label=f'FWHM={fwhm_y:.2f}µm')
     if fit_gaussian and fwhm_result and 'fwhm_y_gauss_um' in fwhm_result and fwhm_result['fwhm_y_gauss_um']:
         try:
-            from scipy.optimize import curve_fit, OptimizeWarning
             import warnings
+
+            from scipy.optimize import OptimizeWarning, curve_fit
             pk = np.argmax(y_profile)
             hw = min(10, len(y_profile) // 2)
             xs = np.arange(max(0, pk - hw), min(len(y_profile), pk + hw + 1))
@@ -388,38 +439,53 @@ def _save_bead_diagnostic(bead_id, volume, z_profile, x_profile, y_profile,
     ax_y.set_ylabel('Intensity')
     ax_y.set_title('Y Profile')
     ax_y.legend(loc='upper right', fontsize=8)
-    
+
     if volume is not None and volume.size > 0:
         nz, ny, nx = volume.shape
         z_mid, y_mid, x_mid = nz // 2, ny // 2, nx // 2
-        
+        mcx = None if method_center_x_px is None else float(np.clip(method_center_x_px, 0, max(0, nx - 1)))
+        mcy = None if method_center_y_px is None else float(np.clip(method_center_y_px, 0, max(0, ny - 1)))
+        mcz = None if method_center_z_volume_px is None else float(np.clip(method_center_z_volume_px, 0, max(0, nz - 1)))
+
         ax_xy = fig.add_subplot(gs[1, 0])
         ax_xy.imshow(volume[z_mid, :, :], cmap='viridis', aspect='equal')
         ax_xy.axhline(y_mid, color='r', ls='--', alpha=0.5)
         ax_xy.axvline(x_mid, color='r', ls='--', alpha=0.5)
+        if mcx is not None and mcy is not None:
+            ax_xy.axhline(mcy, color='c', lw=2.0, alpha=0.9)
+            ax_xy.axvline(mcx, color='c', lw=2.0, alpha=0.9)
+            ax_xy.plot(mcx, mcy, marker='+', color='c', markersize=12, markeredgewidth=2.0)
         ax_xy.set_title(f'XY (z={z_mid})')
         ax_xy.set_xlabel('X (px)')
         ax_xy.set_ylabel('Y (px)')
-        
+
         ax_xz = fig.add_subplot(gs[1, 1])
         ax_xz.imshow(volume[:, y_mid, :], cmap='viridis', aspect=scale_z / scale_xy)
         ax_xz.axhline(z_mid, color='r', ls='--', alpha=0.5)
         ax_xz.axvline(x_mid, color='r', ls='--', alpha=0.5)
+        if mcx is not None and mcz is not None:
+            ax_xz.axhline(mcz, color='c', lw=2.0, alpha=0.9)
+            ax_xz.axvline(mcx, color='c', lw=2.0, alpha=0.9)
+            ax_xz.plot(mcx, mcz, marker='+', color='c', markersize=12, markeredgewidth=2.0)
         ax_xz.set_title(f'XZ (y={y_mid})')
         ax_xz.set_xlabel('X (px)')
         ax_xz.set_ylabel('Z (px)')
-        
+
         ax_yz = fig.add_subplot(gs[1, 2])
         ax_yz.imshow(volume[:, :, x_mid], cmap='viridis', aspect=scale_z / scale_xy)
         ax_yz.axhline(z_mid, color='r', ls='--', alpha=0.5)
         ax_yz.axvline(y_mid, color='r', ls='--', alpha=0.5)
+        if mcy is not None and mcz is not None:
+            ax_yz.axhline(mcz, color='c', lw=2.0, alpha=0.9)
+            ax_yz.axvline(mcy, color='c', lw=2.0, alpha=0.9)
+            ax_yz.plot(mcy, mcz, marker='+', color='c', markersize=12, markeredgewidth=2.0)
         ax_yz.set_title(f'YZ (x={x_mid})')
         ax_yz.set_xlabel('Y (px)')
         ax_yz.set_ylabel('Z (px)')
-    
+
     ax_info = fig.add_subplot(gs[2, :])
     ax_info.axis('off')
-    
+
     info_lines = [f"Bead #{bead_id}"]
     if fwhm_result:
         for key in ['fwhm_x_prom_um', 'fwhm_y_prom_um', 'fwhm_z_prom_um']:
@@ -434,7 +500,9 @@ def _save_bead_diagnostic(bead_id, volume, z_profile, x_profile, y_profile,
             info_lines.append(f"QA SNR: {fwhm_result['qa_z_snr']:.1f}")
         if 'qa_z_symmetry' in fwhm_result and fwhm_result['qa_z_symmetry']:
             info_lines.append(f"QA Symmetry: {fwhm_result['qa_z_symmetry']:.2f}")
-    
+        if 'center_mode' in fwhm_result and fwhm_result['center_mode']:
+            info_lines.append(f"Center mode: {fwhm_result['center_mode']}")
+
     if fit_3d_result:
         info_lines.append("")
         info_lines.append("3D Gaussian fit:")
@@ -442,11 +510,20 @@ def _save_bead_diagnostic(bead_id, volume, z_profile, x_profile, y_profile,
         info_lines.append(f"  FWHM-Y: {fit_3d_result['fwhm_y_um']:.3f} µm")
         info_lines.append(f"  FWHM-Z: {fit_3d_result['fwhm_z_um']:.3f} µm")
         info_lines.append(f"  Residual: {fit_3d_result['residual_norm']:.3f}")
-    
+
     ax_info.text(0.02, 0.95, "\n".join(info_lines), transform=ax_info.transAxes,
                  fontsize=10, verticalalignment='top', fontfamily='monospace',
                  bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.5))
-    
+
+    # Figure-wide legend clarifying existing vs method-center markers.
+    legend_handles = [
+        Line2D([0], [0], color='r', ls='--', lw=1.8, label='Existing reference lines'),
+        Line2D([0], [0], color='g', ls=':', lw=1.8, label='Existing Z-profile peak line'),
+        Line2D([0], [0], color='c', ls='-', lw=2.2, marker='+', markersize=10, label='Method-based center'),
+    ]
+    fig.legend(handles=legend_handles, loc='lower center', bbox_to_anchor=(0.5, 0.02),
+               ncol=3, fontsize=8, frameon=True)
+
     out_path = diag_dir / f"bead_{bead_id:04d}_diagnostic.png"
     _savefig_close(fig, out_path, dpi=150, bbox_inches='tight')
     return out_path
@@ -549,7 +626,7 @@ def run_manual(stack, scale_xy, scale_z, box_size=21, line_length=5.0,
         status_cb(f"Processing beads (0/{n_pts})...")
     half_box = box_size // 2
     center_mode = str(kwargs.get('center_mode', 'peak')).lower()
-    if center_mode not in ('peak', 'centroid', 'radial'):
+    if center_mode not in ('peak', 'centroid', 'radial', 'edge'):
         center_mode = 'peak'
     if callable(status_cb):
         status_cb(f"Center mode: {center_mode}")
@@ -566,6 +643,8 @@ def run_manual(stack, scale_xy, scale_z, box_size=21, line_length=5.0,
         z_profile_raw = np.mean(stack[:, y1:y2, x1:x2], axis=(1, 2))
         z_profile_sm = gaussian_filter(z_profile_raw, sigma=z_smooth) if z_smooth else z_profile_raw
         best_z = int(np.argmax(z_profile_sm))
+        if center_mode in ('radial', 'edge'):
+            best_z = _edge_midpoint_z(z_profile_raw, best_z)
         z_pr = signal.detrend(z_profile_raw) if detrend else z_profile_raw - np.min(z_profile_raw)
         fwhm_z = calculate_fwhm_prominence(
             z_pr, scale_z, prominence_min=prominence_min, prominence_rel=prominence_rel
@@ -619,14 +698,14 @@ def run_manual(stack, scale_xy, scale_z, box_size=21, line_length=5.0,
             fg = fit_gaussian_fwhm(proc, scale_xy, fit_window, robust=robust_fit) if fit_gaussian else None
             fwhms[f'fwhm_{axis.lower()}_gauss_um'] = fg['fwhm_um'] if fg else None
         qa_snr, qa_sym, qa_flag = _quality_metrics(z_profile_raw, best_z, qa_min_snr, qa_min_symmetry)
-        
+
         z1_f, z2_f = max(0, best_z - half_box), min(stack.shape[0], best_z + half_box + 1)
         volume = stack[z1_f:z2_f, y1:y2, x1:x2]
 
         fit_3d_result = None
         if fit_3d and volume.size > 0:
             fit_3d_result = fit_gaussian_3d(volume, scale_xy, scale_z, robust=robust_fit)
-        
+
         if fwhms.get('fwhm_x_prom_um') and fwhms.get('fwhm_y_prom_um'):
             result = {
                 'id': i + 1, 'x_coord': x_c, 'y_coord': y_c, 'z_coord': best_z,
@@ -651,6 +730,10 @@ def run_manual(stack, scale_xy, scale_z, box_size=21, line_length=5.0,
                 'y_profile': y_profile,
                 'volume': volume,
                 'fit_3d_result': fit_3d_result,
+                'method_center_x_px': float(x_c - x1),
+                'method_center_y_px': float(y_c - y1),
+                'method_center_z_profile_px': float(best_z),
+                'method_center_z_volume_px': float(best_z - z1_f),
             })
 
     rejected = []
@@ -659,7 +742,7 @@ def run_manual(stack, scale_xy, scale_z, box_size=21, line_length=5.0,
     if qa_auto_reject and results:
         results, rejected = filter_by_qa(results, qa_min_snr, qa_min_symmetry)
         bead_volumes, profiles = _filter_auxiliary_by_ids(results, bead_volumes, profiles)
-    
+
     if save_diagnostics and output_dir and results:
         n_res = len(results)
         for idx, r in enumerate(results):
@@ -667,11 +750,17 @@ def run_manual(stack, scale_xy, scale_z, box_size=21, line_length=5.0,
                 status_cb(f"Saving diagnostics ({idx + 1}/{n_res})...")
             p = next((pr for pr in profiles if pr.get('id') == r.get('id')), None)
             if p is not None:
+                fwhm_for_diag = dict(r)
+                fwhm_for_diag['center_mode'] = center_mode
                 _save_bead_diagnostic(
                     r['id'], p['volume'], p['z_profile'], p['x_profile'], p['y_profile'],
-                    scale_xy, scale_z, r, output_dir, fit_gaussian, p.get('fit_3d_result')
+                    scale_xy, scale_z, fwhm_for_diag, output_dir, fit_gaussian, p.get('fit_3d_result'),
+                    method_center_x_px=p.get('method_center_x_px'),
+                    method_center_y_px=p.get('method_center_y_px'),
+                    method_center_z_profile_px=p.get('method_center_z_profile_px'),
+                    method_center_z_volume_px=p.get('method_center_z_volume_px'),
                 )
-    
+
     return results, bead_volumes, mip, profiles, rejected
 
 
@@ -767,7 +856,7 @@ def run_stardist(stack, scale_xy, scale_z, box_size=7, line_length=5.0,
         status_cb(f"Processing beads (0/{n_pts})...")
     half_box = box_size // 2
     center_mode = str(kwargs.get('center_mode', 'peak')).lower()
-    if center_mode not in ('peak', 'centroid', 'radial'):
+    if center_mode not in ('peak', 'centroid', 'radial', 'edge'):
         center_mode = 'peak'
     if callable(status_cb):
         status_cb(f"Center mode: {center_mode}")
@@ -862,6 +951,10 @@ def run_stardist(stack, scale_xy, scale_z, box_size=7, line_length=5.0,
                 'y_profile': y_profile,
                 'volume': volume,
                 'fit_3d_result': fit_3d_result,
+                'method_center_x_px': float(x_c - x1),
+                'method_center_y_px': float(y_c - y1),
+                'method_center_z_profile_px': float(best_z),
+                'method_center_z_volume_px': float(best_z - z1),
             })
 
     rejected = []
@@ -887,10 +980,15 @@ def run_stardist(stack, scale_xy, scale_z, box_size=7, line_length=5.0,
                     'fwhm_z_gauss_um': r.get('fwhm_z_gauss'),
                     'qa_z_snr': r.get('qa_z_snr'),
                     'qa_z_symmetry': r.get('qa_z_symmetry'),
+                    'center_mode': center_mode,
                 }
                 _save_bead_diagnostic(
                     r['id'], p['volume'], p['z_profile'], p['x_profile'], p['y_profile'],
-                    scale_xy, scale_z, fwhm_for_diag, output_dir, fit_gaussian, p.get('fit_3d_result')
+                    scale_xy, scale_z, fwhm_for_diag, output_dir, fit_gaussian, p.get('fit_3d_result'),
+                    method_center_x_px=p.get('method_center_x_px'),
+                    method_center_y_px=p.get('method_center_y_px'),
+                    method_center_z_profile_px=p.get('method_center_z_profile_px'),
+                    method_center_z_volume_px=p.get('method_center_z_volume_px'),
                 )
 
     return results, bead_volumes, mip, profiles, rejected
@@ -981,7 +1079,7 @@ def run_cellpose(stack, scale_xy, scale_z, model_path, box_size=15, line_length=
     z_search_min, z_search_max = (z_range[0], min(z_range[1], z_d)) if z_range else (0, z_d)
     half_box = box_size // 2
     center_mode = str(kwargs.get('center_mode', 'peak')).lower()
-    if center_mode not in ('peak', 'centroid', 'radial'):
+    if center_mode not in ('peak', 'centroid', 'radial', 'edge'):
         center_mode = 'peak'
     if callable(status_cb):
         status_cb(f"Center mode: {center_mode}")
@@ -1005,7 +1103,6 @@ def run_cellpose(stack, scale_xy, scale_z, model_path, box_size=15, line_length=
         log_entry = {'id': i + 1, 'x_coord': x_c, 'y_coord': y_c, 'status': 'rejected', 'reason': ''}
         bead_volumes.append(np.array([]))
         x_i, y_i = int(round(x_c)), int(round(y_c))
-        x_c_int, y_c_int = x_i, y_i
         y1, y2 = max(0, y_i - half_box), min(img_h, y_i + half_box + 1)
         x1, x2 = max(0, x_i - half_box), min(img_w, x_i + half_box + 1)
         z_raw = np.mean(stack[:, y1:y2, x1:x2], axis=(1, 2))
@@ -1082,12 +1179,12 @@ def run_cellpose(stack, scale_xy, scale_z, model_path, box_size=15, line_length=
         w3, h3 = img_w / 3.0, img_h / 3.0
         row, col = int(y_c // h3), int(x_c // w3)
         qa_snr, qa_sym, qa_flag = _quality_metrics(z_raw, best_z, qa_min_snr, qa_min_symmetry)
-        
+
         zr = box_size
         z1, z2 = max(0, best_z - zr), min(z_d, best_z + zr + 1)
         volume = stack[z1:z2, y1:y2, x1:x2]
         bead_volumes[-1] = volume
-        
+
         fit_3d_result = None
         if fit_3d and volume.size > 0:
             fit_3d_result = fit_gaussian_3d(volume, scale_xy, scale_z, robust=robust_fit)
@@ -1113,6 +1210,10 @@ def run_cellpose(stack, scale_xy, scale_z, model_path, box_size=15, line_length=
             'y_profile': y_profile,
             'volume': volume,
             'fit_3d_result': fit_3d_result,
+            'method_center_x_px': float(x_c - x1),
+            'method_center_y_px': float(y_c - y1),
+            'method_center_z_profile_px': float(peak_idx_sub),
+            'method_center_z_volume_px': float(best_z - z1),
         })
 
     if callable(status_cb):
@@ -1126,7 +1227,7 @@ def run_cellpose(stack, scale_xy, scale_z, model_path, box_size=15, line_length=
                 le['status'] = 'rejected'
                 le['reason'] = f"Outlier (MAD > {reject_outliers})"
         bead_volumes, profiles = _filter_auxiliary_by_ids(results, bead_volumes, profiles)
-    
+
     rejected = []
     if qa_auto_reject and results:
         results, rejected = filter_by_qa(results, qa_min_snr, qa_min_symmetry)
@@ -1136,7 +1237,7 @@ def run_cellpose(stack, scale_xy, scale_z, model_path, box_size=15, line_length=
                     le['status'] = 'rejected'
                     le['reason'] = r.get('qa_reject_reason', 'QA failed')
         bead_volumes, profiles = _filter_auxiliary_by_ids(results, bead_volumes, profiles)
-    
+
     if save_diagnostics and output_dir and results:
         n_res = len(results)
         for idx, r in enumerate(results):
@@ -1153,12 +1254,17 @@ def run_cellpose(stack, scale_xy, scale_z, model_path, box_size=15, line_length=
                     'fwhm_z_gauss_um': r.get('fwhm_z_gauss'),
                     'qa_z_snr': r.get('qa_z_snr'),
                     'qa_z_symmetry': r.get('qa_z_symmetry'),
+                    'center_mode': center_mode,
                 }
                 _save_bead_diagnostic(
                     r['id'], p['volume'], p['z_profile'], p['x_profile'], p['y_profile'],
-                    scale_xy, scale_z, fwhm_for_diag, output_dir, fit_gaussian, p.get('fit_3d_result')
+                    scale_xy, scale_z, fwhm_for_diag, output_dir, fit_gaussian, p.get('fit_3d_result'),
+                    method_center_x_px=p.get('method_center_x_px'),
+                    method_center_y_px=p.get('method_center_y_px'),
+                    method_center_z_profile_px=p.get('method_center_z_profile_px'),
+                    method_center_z_volume_px=p.get('method_center_z_volume_px'),
                 )
-    
+
     return results, bead_volumes, mip, bead_log, profiles, rejected
 
 

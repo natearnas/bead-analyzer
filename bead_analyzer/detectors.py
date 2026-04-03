@@ -12,8 +12,9 @@
 Bead detection: manual (interactive), blob, trackpy, StarDist, and Cellpose.
 """
 
-import numpy as np
 from pathlib import Path
+
+import numpy as np
 import pandas as pd
 from scipy.ndimage import gaussian_filter, maximum_filter
 
@@ -29,8 +30,8 @@ from .core import (
 
 # Optional: StarDist
 try:
-    from stardist.models import StarDist2D
     from csbdeep.utils import normalize
+    from stardist.models import StarDist2D
     STARDIST_AVAILABLE = True
 except ImportError:
     STARDIST_AVAILABLE = False
@@ -39,7 +40,7 @@ except ImportError:
 try:
     from cellpose import models
     from cellpose import plot as cellpose_plot
-    from skimage.measure import label, regionprops
+    from skimage.measure import regionprops
     CELLPOSE_AVAILABLE = True
 except ImportError:
     CELLPOSE_AVAILABLE = False

@@ -4,6 +4,17 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [1.2.0] - 2026-04-03
+
+### Added
+- New `edge` center refinement mode in CLI and GUI for hollow/ring-like beads, with edge-weighted Z-plane selection
+- Method-center diagnostic overlays (large crosshairs in XY/XZ/YZ and method-center Z marker) while preserving legacy reference lines
+- Figure legend in per-bead diagnostics clarifying existing lines versus method-based center markers
+
+### Changed
+- Updated center-mode documentation across README, CLI docs, GUI docs, and in-app GUI docs guidance for annular beads
+- Added Ruff linting configuration and dev dependency, and cleaned baseline lint issues in the repository
+
 ## [1.1.0] - 2026-04-01
 
 ### Added

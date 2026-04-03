@@ -13,9 +13,11 @@
 
 import argparse
 from pathlib import Path
-import tifffile
-import numpy as np
+
 import matplotlib.pyplot as plt
+import numpy as np
+import tifffile
+
 
 def main():
     parser = argparse.ArgumentParser(description="Generate orthogonal projection plot from 3D TIFF.")

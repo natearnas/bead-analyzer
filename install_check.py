@@ -11,7 +11,6 @@ Usage:
 import subprocess
 import sys
 
-
 MIN_PYTHON = (3, 9)
 MIN_PIP = (21, 0)
 

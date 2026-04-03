@@ -90,7 +90,7 @@ Add `--na 1.4 --fluorophore "FITC"` to record experimental metadata in the summa
 - **Trackpy path**: preferred when backgrounds have gradients or low-NA blur.
 - **StarDist/Cellpose path**: best when beads span roughly 15+ pixels in diameter.
 - **Cellpose 3D**: for anisotropic z-stacks, use `--cellpose_do_3d --anisotropy (z_spacing/xy_spacing)`.
-- **Center refinement for large annular beads**: try `--center_mode radial` first; use `--center_mode centroid` for filled but noisy beads.
+- **Center refinement for large annular beads**: try `--center_mode edge` first; use `--center_mode radial` as fallback and `--center_mode centroid` for filled but noisy beads.
 - **Trackpy tuning for large beads**: increase `trackpy_diameter` and `trackpy_separation`; these are available in GUI Advanced options and CLI.
 
 ### Detector Caveats And Platform Notes
@@ -134,8 +134,9 @@ Each detected bead center is refined after detection. You can select the strateg
 - **`peak`** (default): local 3D intensity-peak recentering + sub-pixel parabolic refinement.
 - **`centroid`**: intensity-weighted centroid on the local XY plane near peak Z.
 - **`radial`**: gradient-symmetry-weighted center (ring-friendly for hollow/annular beads).
+- **`edge`**: edge/gradient-symmetry center with edge-weighted Z-plane selection for hollow/ring-like beads.
 
-For PSF-like sub-resolution spots, keep `peak`. For resolved hollow-looking beads, `radial` usually gives a center closer to the geometric middle.
+For PSF-like sub-resolution spots, keep `peak`. For resolved hollow-looking beads, `edge` is the best first choice; `radial` remains a simpler ring-friendly fallback.
 
 ### 3. Profile Extraction
 
@@ -217,9 +218,10 @@ bead-analyzer beads.tif --mode trackpy --scale_xy 0.0645 --scale_z 0.16 \
 ```bash
 bead-analyzer beads.tif --mode trackpy --scale_xy 0.0645 --scale_z 0.16 \
   --trackpy_diameter 39 --trackpy_separation 41 --box_size 61 \
-  --center_mode radial --fit_gaussian
+  --center_mode edge --fit_gaussian
 ```
-- Use `radial` first for ring-like beads (best geometric centering in many cases).
+- Use `edge` first for ring-like beads (best geometric centering in many cases).
+- If needed, compare with `radial` on the same detections.
 - If over-splitting occurs, raise `trackpy_separation` further.
 
 ### Standard confocal bead slide (high SNR, uniform background)
@@ -282,6 +284,7 @@ Use any 3D TIFF stack of fluorescent beads (e.g. from your confocal or light-she
 
 ```bash
 pip install -e ".[dev]"
+ruff check .
 pytest tests/ -v
 ```
 

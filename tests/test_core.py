@@ -1,17 +1,16 @@
 """Tests for bead_analyzer.core FWHM calculation functions."""
 
 import numpy as np
-import pytest
 
+from bead_analyzer.analysis import _estimate_local_background, _parabolic_peak
 from bead_analyzer.core import (
     calculate_fwhm_prominence,
-    fit_gaussian_fwhm,
-    fit_gaussian_3d,
     filter_by_qa,
+    fit_gaussian_3d,
+    fit_gaussian_fwhm,
     gaussian_func,
     reject_outliers_mad,
 )
-from bead_analyzer.analysis import _parabolic_peak, _estimate_local_background
 
 
 def test_gaussian_func():

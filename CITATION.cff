@@ -5,8 +5,8 @@ authors:
     given-names: "Nathan"
     affiliation: "Arnas Technologies, LLC"
 title: "Bead Analyzer"
-version: 1.1.0
-date-released: 2026-04-01
+version: 1.2.0
+date-released: 2026-04-03
 url: "https://github.com/natearnas/bead-analyzer"
 license: MIT
 repository-code: "https://github.com/natearnas/bead-analyzer"

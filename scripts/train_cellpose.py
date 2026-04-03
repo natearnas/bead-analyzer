@@ -15,7 +15,8 @@ import argparse
 import sys
 from pathlib import Path
 
-from cellpose import models, io, train
+from cellpose import io, models, train
+
 
 def main():
     parser = argparse.ArgumentParser(description="Train a custom Cellpose model on bead images.")
@@ -31,7 +32,7 @@ def main():
         print(f"ERROR: No *_raw.tif found in {data_dir}")
         return 1
     if not train_labels:
-        print(f"ERROR: No *_masks.tif found. Each *_raw.tif needs a *_masks.tif.")
+        print("ERROR: No *_masks.tif found. Each *_raw.tif needs a *_masks.tif.")
         return 1
     print(f"Found {len(train_images)} image/mask pairs.")
     print("Initializing from 'nuclei' weights...")

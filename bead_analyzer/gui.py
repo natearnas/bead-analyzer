@@ -18,8 +18,9 @@ import threading
 from pathlib import Path
 
 try:
-    import customtkinter as ctk
     from tkinter import PhotoImage, filedialog, messagebox
+
+    import customtkinter as ctk
 except ImportError:
     ctk = None
 
@@ -37,6 +38,7 @@ def _run_analysis(input_file, output_dir, mode, scale_xy, scale_z, na, fluoropho
                   run_on_main=None, run_settings=None):
     """Run analysis in background thread. run_on_main: callable to run interactive matplotlib on main thread."""
     import tifffile
+
     from . import analysis
 
     try:
@@ -250,7 +252,7 @@ def main():
     fluorophore_var = ctk.StringVar(value=prev.get('fluorophore', '') or '')
     mode_var = ctk.StringVar(value=prev.get('mode', 'blob'))
     center_mode_prev = str(prev.get('center_mode', 'peak')).lower()
-    if center_mode_prev not in ('peak', 'centroid', 'radial'):
+    if center_mode_prev not in ('peak', 'centroid', 'radial', 'edge'):
         center_mode_prev = 'peak'
     center_mode_var = ctk.StringVar(value=center_mode_prev)
     cellpose_model_var = ctk.StringVar(value=prev.get('cellpose_model', ''))
@@ -584,7 +586,7 @@ def main():
     center_mode_label.pack(side="left", padx=(16, 8))
     center_mode_menu = ctk.CTkOptionMenu(
         frame_gen,
-        values=["peak", "centroid", "radial"],
+        values=["peak", "centroid", "radial", "edge"],
         variable=center_mode_var,
         width=110,
     )
@@ -942,7 +944,8 @@ def main():
     _add_setting_doc("center_mode", "Center mode",
         "How XY center is refined after initial detection. peak: brightest local voxel "
         "(default). centroid: intensity-weighted center. radial: radial-symmetry style "
-        "centering, often better for annular/hollow-looking beads.",
+        "centering. edge: gradient-symmetry center with edge-weighted Z plane selection, "
+        "often better for annular/hollow-looking beads.",
         is_child=True)
     _add_setting_doc("num_beads_avg", "Percentage of beads to avg (1-100)",
         "Number of beads used for the average bead profile. Beads are ranked by "
@@ -1080,7 +1083,7 @@ def main():
          "Use Center mode = centroid. Keep Review detection overlay ON while tuning."),
         ("Large hollow / annular beads",
          "Use Trackpy with larger Diameter/Separation and a larger Box width (around 61 px). "
-         "Use Center mode = radial so centering follows ring symmetry rather than the brightest shell voxel. "
+         "Use Center mode = edge so centering follows edge symmetry and a better edge-weighted Z plane. "
          "If one bead is split into several detections, increase Separation."),
         ("Small sub-resolution beads",
          "Use Blob or Trackpy (not StarDist/Cellpose, which need ~15+ px beads). "

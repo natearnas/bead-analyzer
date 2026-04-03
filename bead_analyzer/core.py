@@ -12,12 +12,12 @@
 Shared FWHM calculation logic and matplotlib-based UI helpers.
 """
 
-import numpy as np
 import textwrap
-from scipy.signal import find_peaks
-from scipy.optimize import curve_fit
-from scipy.ndimage import gaussian_filter1d
+
+import numpy as np
 from matplotlib.widgets import RectangleSelector
+from scipy.optimize import curve_fit
+from scipy.signal import find_peaks
 
 INTERACTIVE_PREVIEW_NOTE = (
     "The lower resolution image used here is to facilitate speed; "
@@ -469,7 +469,7 @@ def fit_gaussian_3d(volume, scale_xy, scale_z, max_iter=2000, robust=False):
         )
         coords = np.vstack([z_coords.ravel(), y_coords.ravel(), x_coords.ravel()])
         data = volume.ravel().astype(np.float64)
-        
+
         peak_idx = np.unravel_index(np.argmax(volume), volume.shape)
         z0_init, y0_init, x0_init = peak_idx
         d_min = float(np.min(data))
@@ -494,13 +494,13 @@ def fit_gaussian_3d(volume, scale_xy, scale_z, max_iter=2000, robust=False):
         sx_init = max(0.8, min(sx_init, nx / 2.0))
         sy_init = max(0.8, min(sy_init, ny / 2.0))
         sz_init = max(0.8, min(sz_init, nz / 2.0))
-        
+
         p0 = [A_init, x0_init, y0_init, z0_init, sx_init, sy_init, sz_init, C_init]
-        
+
         bounds_lower = [0.0, 0.0, 0.0, 0.0, 0.3, 0.3, 0.3, d_min - 0.5 * A_init]
         bounds_upper = [max(1.0, A_init * 5.0), float(nx - 1), float(ny - 1), float(nz - 1),
                         float(nx), float(ny), float(nz), d_max]
-        
+
         fit_kwargs = dict(
             bounds=(bounds_lower, bounds_upper),
             maxfev=max_iter,
@@ -511,14 +511,14 @@ def fit_gaussian_3d(volume, scale_xy, scale_z, max_iter=2000, robust=False):
         popt, _ = curve_fit(
             gaussian_3d, coords, data, p0=p0, **fit_kwargs
         )
-        
+
         A, x0, y0, z0, sigma_x, sigma_y, sigma_z, C = popt
-        
+
         fwhm_factor = 2.0 * np.sqrt(2.0 * np.log(2.0))
         fwhm_x_um = abs(sigma_x) * fwhm_factor * scale_xy
         fwhm_y_um = abs(sigma_y) * fwhm_factor * scale_xy
         fwhm_z_um = abs(sigma_z) * fwhm_factor * scale_z
-        
+
         fitted = gaussian_3d(coords, *popt)
         rmse = float(np.sqrt(np.mean((data - fitted) ** 2)))
         residual = rmse / A_init if A_init > 0 else 1.0
@@ -527,7 +527,7 @@ def fit_gaussian_3d(volume, scale_xy, scale_z, max_iter=2000, robust=False):
             return None
         if any((s <= 0.25 or not np.isfinite(s)) for s in [sigma_x, sigma_y, sigma_z]):
             return None
-        
+
         return {
             'fwhm_x_um': fwhm_x_um,
             'fwhm_y_um': fwhm_y_um,
@@ -545,7 +545,7 @@ def fit_gaussian_3d(volume, scale_xy, scale_z, max_iter=2000, robust=False):
 def filter_by_qa(results, min_snr=3.0, min_symmetry=0.6, snr_key='qa_z_snr', sym_key='qa_z_symmetry'):
     """
     Filter results by QA metrics (SNR and symmetry).
-    
+
     Parameters
     ----------
     results : list of dict
@@ -558,7 +558,7 @@ def filter_by_qa(results, min_snr=3.0, min_symmetry=0.6, snr_key='qa_z_snr', sym
         Key for SNR in result dict
     sym_key : str
         Key for symmetry in result dict
-        
+
     Returns
     -------
     tuple
@@ -566,32 +566,32 @@ def filter_by_qa(results, min_snr=3.0, min_symmetry=0.6, snr_key='qa_z_snr', sym
     """
     if not results:
         return [], []
-    
+
     accepted = []
     rejected = []
-    
+
     for r in results:
         snr = r.get(snr_key)
         sym = r.get(sym_key)
-        
+
         reject = False
         reason = []
-        
+
         if snr is not None and snr < min_snr:
             reject = True
             reason.append(f"SNR={snr:.1f}<{min_snr}")
         if sym is not None and sym < min_symmetry:
             reject = True
             reason.append(f"sym={sym:.2f}<{min_symmetry}")
-        
+
         if reject:
             r_copy = r.copy()
             r_copy['qa_reject_reason'] = "; ".join(reason)
             rejected.append(r_copy)
         else:
             accepted.append(r)
-    
+
     if rejected:
         print(f"\nQA filter: rejected {len(rejected)} beads, kept {len(accepted)}.")
-    
+
     return accepted, rejected

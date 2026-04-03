@@ -8,7 +8,7 @@ bead-analyzer-gui
 
 Or: `python -m bead_analyzer.gui`
 
-The GUI window title shows the version number (e.g., "Bead Analyzer v1.1.0").
+The GUI window title shows the version number (e.g., "Bead Analyzer v1.2.0").
 
 ## Layout Overview
 
@@ -47,6 +47,7 @@ Five radio buttons (default: Blob):
   - `peak` (default): brightest local voxel, best for sub-resolution beads
   - `centroid`: intensity-weighted center for filled/noisy larger beads
   - `radial`: ring-friendly center for hollow/annular larger beads
+  - `edge`: edge/gradient-symmetry center with edge-weighted Z-plane selection
 
 #### Background Subtraction
 - **Subtract background** – Interactive ROI: use the right mouse button to click and drag to draw a background region; close the window when done
@@ -132,9 +133,10 @@ Settings are automatically restored from your last session, so you only need to:
 ## Center Mode Guidance
 
 - **Use `peak`** for tiny PSF-like beads and routine diffraction-limited measurements.
-- **Use `radial`** first for large beads that appear hollow/ring-like in XY projections.
+- **Use `edge`** first for large beads that appear hollow/ring-like in XY projections.
+- **Use `radial`** for a simpler ring-friendly option if `edge` and `radial` are effectively similar on your data.
 - **Use `centroid`** when beads are filled but asymmetric or noisy.
-- If centers look offset in diagnostics, keep detection settings fixed and compare the three center modes.
+- If centers look offset in diagnostics, keep detection settings fixed and compare the four center modes.
 
 ## Recommended Starting Settings By Bead Type
 
@@ -151,7 +153,7 @@ Settings are automatically restored from your last session, so you only need to:
   - Mode: **Trackpy**
   - Advanced Trackpy options: larger **Diameter/Separation** (e.g., around apparent bead diameter)
   - Box width: **~61 px**
-  - Center mode: **radial**
+  - Center mode: **edge** (or **radial** as fallback)
 
 ## Tips & Best Practices
 
