@@ -8,6 +8,7 @@ authors:
 title: "Bead Analyzer"
 version: 1.2.1
 date-released: 2026-05-04
+doi: "10.5281/zenodo.20031695"
 url: "https://github.com/natearnas/bead-analyzer"
 license: MIT
 repository-code: "https://github.com/natearnas/bead-analyzer"
