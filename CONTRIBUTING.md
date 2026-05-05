@@ -28,6 +28,24 @@ Arnas Technologies, LLC maintains this project as an open-source tool for the sc
 - **Non-Commercial Incorporation:** Arnas Technologies, LLC explicitly commits that community-contributed code will not be included in any separate, closed-source commercial licenses sold by the company.
 - **Your Rights:** You retain the copyright to your contributions, which will always remain available to the public under this project's open-source license.
 
+## Cutting a Release (Maintainers)
+
+Each tagged GitHub release is auto-archived to Zenodo via the `.zenodo.json` webhook and assigned a new version-specific DOI. The **concept DOI** (`10.5281/zenodo.20031695`) is stable across versions and always resolves to the latest release, so the README badge and any external citations don't need updating.
+
+Steps:
+
+1. Bump `version` in [pyproject.toml](pyproject.toml) and [CITATION.cff](CITATION.cff); update `date-released` in CITATION.cff to today.
+2. Add a new entry at the top of [CHANGELOG.md](CHANGELOG.md) following the Keep a Changelog format (`## [X.Y.Z] - YYYY-MM-DD` with `### Added` / `### Changed` / `### Fixed` subsections as needed).
+3. If author list, affiliation, or ORCIDs changed, update [.zenodo.json](.zenodo.json) `creators` and the matching CITATION.cff `authors` block.
+4. Commit (e.g. `release X.Y.Z`) and push to `main`.
+5. Tag and push the tag:
+   ```bash
+   git tag vX.Y.Z
+   git push origin vX.Y.Z
+   ```
+6. On GitHub, **Releases → Draft a new release** → choose tag `vX.Y.Z` → title `vX.Y.Z — short summary` → paste only that version's CHANGELOG entry into the description (do not include the file header or older entries) → leave "Set as the latest release" checked, "Set as a pre-release" unchecked → **Publish release**.
+7. Within ~1 minute, Zenodo will deposit the source tarball and assign a new version DOI. Verify at https://zenodo.org/account/settings/github/. No further action is needed — the concept DOI in the README and CITATION.cff already points to the new version automatically.
+
 ## Support and Questions
 
 If you have a specialized use case or are interested in a deeper collaboration (such as grant inclusion or custom pipeline development), please refer to the [Consulting & Collaboration](README.md#consulting--collaboration) section in the README or contact Nate directly at nate@arnastechnologies.com.
