@@ -4,6 +4,13 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [1.2.1] - 2026-05-04
+
+### Added
+- `.zenodo.json` describing the deposit metadata (title, description, MIT license, author, keywords) for the Zenodo GitHub-release archival workflow
+- DOI badge placeholder, Citation section, and Code Availability statement in the README
+- CITATION.cff bumped to 1.2.1 in preparation for the first DOI-minting release
+
 ## [1.2.0] - 2026-04-03
 
 ### Added

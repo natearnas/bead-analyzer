@@ -1,5 +1,7 @@
 # Bead Analyzer
 
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.TBD.svg)](https://doi.org/10.5281/zenodo.TBD)
+
 Analyze images of microspheres for characterizing light microscopy systems. Measures FWHM, PSF shape, SNR, and symmetry from fluorescent beads in entire 3D image stacks or lateral regions within them. Supports manual bead selection, classical blob/trackpy detection, StarDist automatic detection, and Cellpose with custom-trained models.
 
 ## Quick Start
@@ -325,6 +327,18 @@ If you are interested in discussing a collaboration or professional engagement, 
 
 - **Email:** nathan@arnastech.com
 - **Website:** [www.arnastechnologies.com](https://www.arnastechnologies.com)
+
+## Citation
+
+If you use Bead Analyzer in published work, please cite the archived release. Citation metadata is in [CITATION.cff](CITATION.cff); GitHub renders a "Cite this repository" widget on the repo page that can export BibTeX or APA.
+
+Each tagged GitHub release is automatically archived to Zenodo and assigned a DOI. Cite the **concept DOI** (resolves to the latest version) unless your manuscript needs to pin a specific version, in which case cite the per-version DOI.
+
+### Code Availability statement (for manuscripts)
+
+> The custom code used to detect beads and measure lateral and axial FWHM of the detection point spread function is available at https://github.com/natearnas/bead-analyzer under the MIT license. The version used in this study is archived on Zenodo (DOI: 10.5281/zenodo.TBD). Documentation, command-line examples, and a Windows GUI build are included in the repository.
+
+Replace `10.5281/zenodo.TBD` with the concept DOI assigned by Zenodo on first deposit.
 
 ## Acknowledgments
 
