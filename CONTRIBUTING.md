@@ -30,7 +30,7 @@ Arnas Technologies, LLC maintains this project as an open-source tool for the sc
 
 ## Cutting a Release (Maintainers)
 
-Each tagged GitHub release is auto-archived to Zenodo via the `.zenodo.json` webhook and assigned a new version-specific DOI. The **concept DOI** (`10.5281/zenodo.20031695`) is stable across versions and always resolves to the latest release, so the README badge and any external citations don't need updating.
+Each tagged GitHub release is auto-archived to Zenodo via the `.zenodo.json` webhook and assigned a new version-specific DOI (v1.2.1 received `10.5281/zenodo.20031695`). The **concept DOI** (`10.5281/zenodo.20031694`) is stable across versions and always resolves to the latest release, so the README badge and any external citations don't need updating.
 
 Steps:
 
