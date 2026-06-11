@@ -134,7 +134,8 @@ def _quality_metrics(z_profile, peak_idx, min_snr=3.0, min_symmetry=0.6):
     baseline_vals = np.concatenate([left, right]) if len(left) + len(right) >= 3 else z_profile
     baseline_med = float(np.median(baseline_vals))
     baseline_mad = float(np.median(np.abs(baseline_vals - baseline_med)))
-    noise = baseline_mad * 1.4826 + 1e-9
+    signal_amp = max(float(z_profile[peak_idx] - baseline_med), 0.0)
+    noise = max(baseline_mad * 1.4826, signal_amp * 1e-3, 1e-9)
     snr = float((z_profile[peak_idx] - baseline_med) / noise)
 
     # Symmetry around peak
@@ -146,13 +147,14 @@ def _quality_metrics(z_profile, peak_idx, min_snr=3.0, min_symmetry=0.6):
     else:
         left_seg = left[-min_len:]
         right_seg = right[:min_len][::-1]
-        l_min, l_max = float(np.min(left_seg)), float(np.max(left_seg))
-        r_min, r_max = float(np.min(right_seg)), float(np.max(right_seg))
-        if l_max == l_min or r_max == r_min:
+        peak_val = float(z_profile[peak_idx])
+        shared_min = float(min(np.min(left_seg), np.min(right_seg)))
+        denom = peak_val - shared_min
+        if denom <= 0:
             symmetry = None
         else:
-            left_norm = (left_seg - l_min) / (l_max - l_min)
-            right_norm = (right_seg - r_min) / (r_max - r_min)
+            left_norm = (left_seg - shared_min) / denom
+            right_norm = (right_seg - shared_min) / denom
             symmetry = float(1.0 - np.mean(np.abs(left_norm - right_norm)))
             symmetry = max(0.0, min(1.0, symmetry))
     qa_flag = None
