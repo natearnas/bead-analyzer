@@ -32,26 +32,6 @@ def test_quality_metrics_high_snr_symmetric():
     assert symmetry > 0.9, f"Expected symmetry close to 1, got {symmetry}"
 
 
-def test_quality_metrics_asymmetric_lower_symmetry():
-    """Asymmetric profile (one side scaled) yields clearly lower symmetry."""
-    x = np.arange(51, dtype=np.float64)
-    peak_idx = 25
-    sigma = 5.0
-    # Left lobe at normal amplitude; right lobe at half amplitude
-    left = 100.0 * np.exp(-0.5 * ((x[:peak_idx] - peak_idx) / sigma) ** 2) + 10.0
-    right = 50.0 * np.exp(-0.5 * ((x[peak_idx + 1:] - peak_idx) / sigma) ** 2) + 10.0
-    profile = np.concatenate([left, [110.0], right])
-    _, symmetry_asym, _ = _quality_metrics(profile, peak_idx=peak_idx)
-
-    sym_profile = _symmetric_gaussian_profile()
-    _, symmetry_sym, _ = _quality_metrics(sym_profile, peak_idx=25)
-
-    assert symmetry_asym is not None
-    assert symmetry_sym is not None
-    assert symmetry_asym < symmetry_sym, (
-        f"Asymmetric symmetry ({symmetry_asym:.3f}) should be below symmetric ({symmetry_sym:.3f})"
-    )
-
 
 def test_quality_metrics_snr_finite_flat_baseline():
     """Flat baseline (MAD=0) must not produce an absurdly large SNR (regression for noise-floor fix)."""

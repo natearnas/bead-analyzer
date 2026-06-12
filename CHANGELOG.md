@@ -11,11 +11,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 - SNR quality metric no longer returns astronomically large values on flat/synthetic baselines (noise floor is now tied to signal amplitude rather than a fixed 1e-9)
 - Default peak prominence is now derived from the profile's dynamic range instead of a fixed absolute value, making detection robust for unscaled (e.g. raw 16-bit) profiles
 
-### Changed
-- Z-profile symmetry QA metric now normalizes both sides by a shared peak-above-baseline factor so that axial amplitude asymmetry (e.g. from spherical aberration) is preserved rather than hidden by independent per-side min–max normalization. NOTE: this changes the numeric value of `qa_z_symmetry`; users with calibrated symmetry thresholds may need to re-tune.
-
 ### Added
-- Direct unit tests for the `analysis.py` math helpers: `_quality_metrics` (SNR/symmetry), `_weighted_centroid_2d`, `_radial_center_2d`, and `_edge_midpoint_z`
+- Direct unit tests for the `analysis.py` math helpers: `_quality_metrics` (SNR), `_weighted_centroid_2d`, `_radial_center_2d`, and `_edge_midpoint_z`
 - Regression test for prominence FWHM in the presence of a neighboring peak
 
 ## [1.2.1] - 2026-05-04
