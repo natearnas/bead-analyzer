@@ -294,17 +294,21 @@ def calculate_fwhm_prominence(profile, scale_factor=1.0, prominence_min=None, pr
                 return None
             prominence_min = amp * float(prominence_rel)
         if prominence_min is None:
-            prominence_min = 0.1
+            dyn_range = float(np.max(profile) - np.min(profile))
+            prominence_min = max(0.05 * dyn_range, 1e-9)
         peaks, props = find_peaks(profile, prominence=prominence_min)
         if not peaks.size:
             return None
         i = np.argmax(props['prominences'])
         pk = peaks[i]
         h = profile[pk] - props['prominences'][i] / 2.0
-        above = np.where(profile > h)[0]
-        if len(above) < 2:
-            return None
-        l_idx, r_idx = above[0], above[-1]
+        # Expand from the selected peak to the contiguous region above the half-max.
+        l_idx = pk
+        while l_idx > 0 and profile[l_idx - 1] > h:
+            l_idx -= 1
+        r_idx = pk
+        while r_idx < len(profile) - 1 and profile[r_idx + 1] > h:
+            r_idx += 1
         if l_idx == 0 or r_idx >= len(profile) - 1:
             return None
 
