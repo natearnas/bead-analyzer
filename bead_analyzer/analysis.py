@@ -134,7 +134,8 @@ def _quality_metrics(z_profile, peak_idx, min_snr=3.0, min_symmetry=0.6):
     baseline_vals = np.concatenate([left, right]) if len(left) + len(right) >= 3 else z_profile
     baseline_med = float(np.median(baseline_vals))
     baseline_mad = float(np.median(np.abs(baseline_vals - baseline_med)))
-    noise = baseline_mad * 1.4826 + 1e-9
+    signal_amp = max(float(z_profile[peak_idx] - baseline_med), 0.0)
+    noise = max(baseline_mad * 1.4826, signal_amp * 1e-3, 1e-9)
     snr = float((z_profile[peak_idx] - baseline_med) / noise)
 
     # Symmetry around peak

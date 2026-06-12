@@ -1,5 +1,6 @@
 {
   "title": "Bead Analyzer: FWHM and PSF characterization for fluorescence microscopy z-stacks",
+  "version": "1.2.2",
   "description": "Bead Analyzer is a Python tool for measuring the point spread function (PSF) of light microscopy systems from 3D fluorescence z-stacks of sub-resolution and resolved beads. It detects beads using one of five backends (manual selection, classical blob/local-maximum, Trackpy bandpass + sub-pixel centroid, StarDist, or a Cellpose custom model), refines centers (peak, centroid, radial, or edge mode), extracts 1D intensity profiles along Z, X, and Y through each refined center, and reports lateral and axial full width at half maximum (FWHM) using both a model-free prominence method and 1D and 3D Gaussian fits (with optional soft-L1 robust loss). Per-bead quality metrics (SNR, symmetry) and auto-rejection are included, along with diagnostic plots, an averaged-bead stack, a publication-quality summary figure, and a spatial FWHM heatmap. Distributed as a CLI (`bead-analyzer`) and a Tkinter/CustomTkinter GUI (`bead-analyzer-gui`).",
   "upload_type": "software",
   "license": "MIT",

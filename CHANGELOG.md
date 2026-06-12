@@ -4,6 +4,17 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [1.2.2] - 2026-06-12
+
+### Fixed
+- Prominence-based FWHM now measures only the contiguous region around the selected peak, preventing overestimation when a neighboring bead/peak lies within the same profile
+- SNR quality metric no longer returns astronomically large values on flat/synthetic baselines (noise floor is now tied to signal amplitude rather than a fixed 1e-9)
+- Default peak prominence is now derived from the profile's dynamic range instead of a fixed absolute value, making detection robust for unscaled (e.g. raw 16-bit) profiles
+
+### Added
+- Direct unit tests for the `analysis.py` math helpers: `_quality_metrics` (SNR), `_weighted_centroid_2d`, `_radial_center_2d`, and `_edge_midpoint_z`
+- Regression test for prominence FWHM in the presence of a neighboring peak
+
 ## [1.2.1] - 2026-05-04
 
 ### Added

@@ -6,8 +6,8 @@ authors:
     affiliation: "Arnas Technologies, LLC"
     orcid: "https://orcid.org/0009-0000-5928-8692"
 title: "Bead Analyzer"
-version: 1.2.1
-date-released: 2026-05-04
+version: 1.2.2
+date-released: 2026-06-12
 doi: "10.5281/zenodo.20031694"
 url: "https://github.com/natearnas/bead-analyzer"
 license: MIT
