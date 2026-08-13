@@ -336,6 +336,8 @@ If you use Bead Analyzer in published work, please cite the archived release. Ci
 
 Each tagged GitHub release is automatically archived to Zenodo and assigned a DOI. Cite the **concept DOI** (resolves to the latest version) unless your manuscript needs to pin a specific version, in which case cite the per-version DOI.
 
+Author: Nathan O'Connor, [Arnas Technologies](https://arnastech.com) ([ORCID: 0009-0000-5928-8692](https://orcid.org/0009-0000-5928-8692)).
+
 ### Code Availability statement (for manuscripts)
 
 > The custom code used to detect beads and measure lateral and axial FWHM of the detection point spread function is available at https://github.com/natearnas/bead-analyzer under the MIT license. The version used in this study (v1.2.1) is archived on Zenodo (concept DOI: 10.5281/zenodo.20031694; version-specific DOI for v1.2.1: 10.5281/zenodo.20031695). Documentation, command-line examples, and a Windows GUI build are included in the repository.
