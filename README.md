@@ -4,6 +4,8 @@
 
 Analyze images of microspheres for characterizing light microscopy systems. Measures FWHM, PSF shape, SNR, and symmetry from fluorescent beads in entire 3D image stacks or lateral regions within them. Supports manual bead selection, classical blob/trackpy detection, StarDist automatic detection, and Cellpose with custom-trained models.
 
+Developed at [Arnas Technologies](https://arnastech.com), makers of [Arnas Scope](https://arnastech.com/scope) deconvolution microscopy software.
+
 ## Quick Start
 
 ### Installation
@@ -326,7 +328,7 @@ This project is developed and maintained by Nathan O'Connor, PhD, MS at Arnas Te
 If you are interested in discussing a collaboration or professional engagement, please reach out via:
 
 - **Email:** nathan@arnastech.com
-- **Website:** [www.arnastechnologies.com](https://www.arnastechnologies.com)
+- **Website:** [arnastech.com](https://arnastech.com)
 
 ## Citation
 
