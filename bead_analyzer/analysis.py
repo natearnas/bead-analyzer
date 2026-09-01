@@ -1178,7 +1178,7 @@ def run_cellpose(stack, scale_xy, scale_z, model_path, box_size=15, line_length=
         log_entry['status'] = 'accepted'
         bead_log.append(log_entry)
         w3, h3 = img_w / 3.0, img_h / 3.0
-        row, col = int(y_c // h3), int(x_c // w3)
+        row, col = min(int(y_c // h3), 2), min(int(x_c // w3), 2)
         qa_snr, qa_sym, qa_flag = _quality_metrics(z_raw, best_z, qa_min_snr, qa_min_symmetry)
 
         zr = box_size
