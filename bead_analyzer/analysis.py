@@ -1451,7 +1451,7 @@ def _save_average_bead(volumes, file_path, scale_xy, scale_z, upsample_factor=4)
     for vol in volumes:
         up = zoom(vol, upsample_factor, order=3)
         peak = np.unravel_index(np.argmax(up), up.shape)
-        center = np.array(up.shape) / 2.0
+        center = (np.array(up.shape) - 1) / 2.0
         centered.append(shift(up, center - peak, order=3, mode='constant', cval=0))
     max_d = np.max([v.shape for v in centered], axis=0)
     padded = [np.pad(v, [(0, max_d[i] - v.shape[i]) for i in range(3)], mode='constant', constant_values=0) for v in centered]
