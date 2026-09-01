@@ -51,6 +51,23 @@ def test_calculate_fwhm_prominence_too_short():
     assert calculate_fwhm_prominence(y) is None
 
 
+def test_calculate_fwhm_prominence_ignores_secondary_peak():
+    """FWHM is measured around the selected (most prominent) peak only.
+
+    Previously l_idx/r_idx used the global first/last samples above the
+    half-prominence level, so a second peak anywhere in the profile inflated
+    the measured width.
+    """
+    x = np.arange(200)
+    sigma = 2.0
+    fwhm_expected = 2 * np.sqrt(2 * np.log(2)) * sigma
+    y = (gaussian_func(x, 10.0, 50.0, sigma, 0.0)
+         + gaussian_func(x, 6.0, 150.0, 3.0, 0.0) + 1.0)
+    result = calculate_fwhm_prominence(y, scale_factor=1.0)
+    assert result is not None
+    assert np.isclose(result['fwhm_px'], fwhm_expected, rtol=0.1)
+
+
 def test_fit_gaussian_fwhm():
     """Gaussian fit returns reasonable FWHM."""
     x = np.arange(50)
