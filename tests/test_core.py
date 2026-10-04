@@ -226,6 +226,24 @@ def test_fwhm_prominence_with_nonzero_baseline():
     assert np.isclose(result['fwhm_px'], fwhm_expected, rtol=0.15)
 
 
+def _make_synthetic_stack(nz=21, ny=61, nx=61, sigma_xy=2.0, sigma_z=3.0,
+                          background=100.0, amplitude=1000.0, center_xy=None):
+    """Deterministic 3D Gaussian bead on constant background.
+
+    The bead sits at the stack midpoint unless center_xy=(x0, y0) is given.
+    """
+    z, y, x = np.meshgrid(np.arange(nz), np.arange(ny), np.arange(nx), indexing='ij')
+    z0, y0, x0 = (nz - 1) / 2.0, (ny - 1) / 2.0, (nx - 1) / 2.0
+    if center_xy is not None:
+        x0, y0 = center_xy
+    stack = background + amplitude * np.exp(
+        -0.5 * (((x - x0) / sigma_xy) ** 2 +
+                ((y - y0) / sigma_xy) ** 2 +
+                ((z - z0) / sigma_z) ** 2)
+    )
+    return stack.astype(np.float32)
+
+
 def test_parabolic_peak_recovers_exact_vertex():
     """Parabolic interpolation recovers the vertex of an exact parabola."""
     x = np.arange(21, dtype=float)
@@ -288,3 +306,54 @@ def test_fit_gaussian_3d_units_anisotropic_scales():
     assert np.isclose(res['fwhm_x_um'], factor * sx * 0.1, rtol=0.05)
     assert np.isclose(res['fwhm_y_um'], factor * sy * 0.1, rtol=0.05)
     assert np.isclose(res['fwhm_z_um'], factor * sz * 0.5, rtol=0.05)
+
+
+def test_pipeline_xy_fwhm_sampling_accuracy(tmp_path):
+    """End-to-end XY FWHM through the profile-extraction path matches ground truth.
+
+    Uses run_blob with a points_file (skips detection). Fails if the sampled
+    profile spacing deviates from 1 px (the historical ll/(ll-1) bias).
+    """
+    from bead_analyzer import analysis
+
+    stack = _make_synthetic_stack(nz=21, ny=61, nx=61, sigma_xy=2.0, sigma_z=3.0)
+    scale_xy, scale_z = 0.26, 2.0
+    sigma_px = 2.0
+    fwhm_um_true = 2 * np.sqrt(2 * np.log(2)) * sigma_px * scale_xy
+
+    pts_file = tmp_path / "points.csv"
+    pts_file.write_text("x_coord,y_coord\n30,30\n")
+
+    results, _, _, _, _ = analysis.run_blob(
+        stack, scale_xy=scale_xy, scale_z=scale_z,
+        box_size=15, line_length=4.0, points_file=str(pts_file),
+    )
+    assert len(results) == 1
+    meas = results[0]['fwhm_x_prom']
+    assert meas is not None
+    assert np.isclose(meas, fwhm_um_true, rtol=0.04)
+    assert np.isclose(results[0]['fwhm_y_prom'], fwhm_um_true, rtol=0.04)
+
+
+def test_pipeline_xy_fwhm_off_pixel_center(tmp_path):
+    """XY FWHM stays accurate when the bead center falls between pixels.
+
+    Bilinear line sampling broadens off-pixel profiles (about +6% at a
+    half-pixel offset for sigma 1.5 px); a pixel-centered bead cannot see it.
+    """
+    from bead_analyzer import analysis
+
+    sigma_px, scale_xy = 1.5, 0.26
+    stack = _make_synthetic_stack(sigma_xy=sigma_px, center_xy=(30.5, 30.5))
+    fwhm_um_true = 2 * np.sqrt(2 * np.log(2)) * sigma_px * scale_xy
+
+    pts_file = tmp_path / "points.csv"
+    pts_file.write_text("x_coord,y_coord\n30,30\n")
+
+    results, _, _, _, _ = analysis.run_blob(
+        stack, scale_xy=scale_xy, scale_z=2.0,
+        box_size=15, line_length=4.0, points_file=str(pts_file), fit_gaussian=True,
+    )
+    assert len(results) == 1
+    assert np.isclose(results[0]['fwhm_x_gauss'], fwhm_um_true, rtol=0.02)
+    assert np.isclose(results[0]['fwhm_y_gauss'], fwhm_um_true, rtol=0.02)

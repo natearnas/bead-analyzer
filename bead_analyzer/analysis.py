@@ -179,6 +179,28 @@ def _estimate_local_background(slice_2d, x_c, y_c, inner_r, outer_r):
     return float(np.median(vals))
 
 
+def _sample_line_profile(slice_2d, x_c, y_c, half_len, n_samples, axis):
+    """Sample a 1 px-spaced intensity line through (x_c, y_c) along 'X' or 'Y'.
+
+    Uses cubic-spline interpolation. Bilinear interpolation averages neighboring
+    pixels whenever the line falls between pixel centers, which broadens the
+    profile and biases the FWHM high for small spots.
+    """
+    offsets = np.linspace(-half_len, half_len, n_samples)
+    if axis == 'X':
+        ys, xs = np.full(n_samples, y_c), x_c + offsets
+    else:
+        ys, xs = y_c + offsets, np.full(n_samples, x_c)
+    # Interpolate on a local patch so the spline prefilter does not run over the
+    # whole slice for every bead; the margin keeps its edge effects negligible.
+    pad = 10
+    y0 = max(0, int(np.floor(ys.min())) - pad)
+    y1 = min(slice_2d.shape[0], int(np.ceil(ys.max())) + pad + 1)
+    x0 = max(0, int(np.floor(xs.min())) - pad)
+    x1 = min(slice_2d.shape[1], int(np.ceil(xs.max())) + pad + 1)
+    return map_coordinates(slice_2d[y0:y1, x0:x1], np.vstack((ys - y0, xs - x0)), order=3)
+
+
 def _parabolic_peak(values, peak_idx, offset):
     """Refine integer peak to sub-pixel using parabolic interpolation.
 
@@ -665,16 +687,12 @@ def run_manual(stack, scale_xy, scale_z, box_size=21, line_length=5.0,
         line_len_px = max(5, int(line_length / scale_xy))
         if line_len_px % 2 == 0:
             line_len_px += 1
-        half_line = line_len_px / 2.0
+        half_line = (line_len_px - 1) / 2.0
         fwhms = {}
         x_profile = None
         y_profile = None
         for axis in ['X', 'Y']:
-            if axis == 'X':
-                coords = np.vstack((np.full(line_len_px, y_c), np.linspace(x_c - half_line, x_c + half_line, line_len_px)))
-            else:
-                coords = np.vstack((np.linspace(y_c - half_line, y_c + half_line, line_len_px), np.full(line_len_px, x_c)))
-            raw = map_coordinates(sl, coords, order=1)
+            raw = _sample_line_profile(sl, x_c, y_c, half_line, line_len_px, axis)
             if detrend:
                 proc = signal.detrend(raw)
             elif local_background:
@@ -894,13 +912,12 @@ def run_stardist(stack, scale_xy, scale_z, box_size=7, line_length=5.0,
         ll = max(5, int(line_length / scale_xy))
         if ll % 2 == 0:
             ll += 1
-        hl = ll / 2.0
+        hl = (ll - 1) / 2.0
         fwhms = {}
         x_profile = None
         y_profile = None
         for axis in ['X', 'Y']:
-            coords = np.vstack((np.full(ll, y_c), np.linspace(x_c - hl, x_c + hl, ll))) if axis == 'X' else np.vstack((np.linspace(y_c - hl, y_c + hl, ll), np.full(ll, x_c)))
-            prof = map_coordinates(sl, coords, order=1)
+            prof = _sample_line_profile(sl, x_c, y_c, hl, ll, axis)
             if detrend:
                 pr = signal.detrend(prof)
             elif local_background:
@@ -1143,14 +1160,13 @@ def run_cellpose(stack, scale_xy, scale_z, model_path, box_size=15, line_length=
         ll = max(5, int(line_length / scale_xy))
         if ll % 2 == 0:
             ll += 1
-        hl = ll / 2.0
+        hl = (ll - 1) / 2.0
         fwhms = {}
         failed = False
         x_profile = None
         y_profile = None
         for axis in ['X', 'Y']:
-            coords = np.vstack((np.full(ll, y_c), np.linspace(x_c - hl, x_c + hl, ll))) if axis == 'X' else np.vstack((np.linspace(y_c - hl, y_c + hl, ll), np.full(ll, x_c)))
-            prof = map_coordinates(sl, coords, order=1)
+            prof = _sample_line_profile(sl, x_c, y_c, hl, ll, axis)
             if detrend:
                 pr = signal.detrend(prof)
             elif local_background:
