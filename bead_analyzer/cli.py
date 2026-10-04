@@ -43,8 +43,10 @@ def main():
                         default='blob',
                         help="Detection mode (default: blob). "
                              "Use stardist/cellpose mainly for large beads (~15+ px diameter).")
-    parser.add_argument("--scale_xy", type=float, required=True, help="XY pixel size (µm)")
-    parser.add_argument("--scale_z", type=float, required=True, help="Z pixel size (µm)")
+    parser.add_argument("--scale_xy", type=float, default=None,
+                        help="XY pixel size in µm (required, can come from --config)")
+    parser.add_argument("--scale_z", type=float, default=None,
+                        help="Z pixel size in µm (required, can come from --config)")
     parser.add_argument("--output_dir", type=str, default=None,
                         help="Output directory (default: same as input)")
     parser.add_argument("--channel", type=int, default=0)
@@ -148,19 +150,19 @@ def main():
             cfg = json.load(f)
         if args.input_file is None and 'input_file' in cfg:
             args.input_file = cfg['input_file']
-        arg_defaults = parser.parse_args([args.input_file or ''])
         for key, value in cfg.items():
             if key in ('input_file',):
                 continue
             attr = key.replace('-', '_')
             if hasattr(args, attr):
                 cli_val = getattr(args, attr)
-                default_val = getattr(arg_defaults, attr, None)
-                if cli_val == default_val:
+                if cli_val == parser.get_default(attr):
                     setattr(args, attr, value)
 
     if args.input_file is None:
         parser.error("input_file is required (provide it directly or via --config)")
+    if args.scale_xy is None or args.scale_z is None:
+        parser.error("--scale_xy and --scale_z are required (provide them directly or via --config)")
 
     args.num_beads_avg = max(1, args.num_beads_avg)
 

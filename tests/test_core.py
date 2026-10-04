@@ -1,5 +1,7 @@
 """Tests for bead_analyzer.core FWHM calculation functions."""
 
+import json
+
 import matplotlib
 import numpy as np
 
@@ -399,3 +401,28 @@ def test_write_outputs_average_bead_id_alignment(tmp_path):
     # Correct pairing: volumes for ids 2 and 3 -> background average (10+20)/2 = 15.
     # Mis-paired (positional) selection picks volumes of the wrong ids instead.
     assert np.isclose(float(avg[0, 0, 0]), 15.0, atol=2.0)
+
+
+def test_cli_config_supplies_required_scale_args(tmp_path, monkeypatch, capsys):
+    """--config can supply scale_xy/scale_z without argparse requiring them on the CLI."""
+    import tifffile
+
+    from bead_analyzer import cli
+
+    stack = _make_synthetic_stack(nz=15, ny=41, nx=41, sigma_xy=2.0, sigma_z=3.0)
+    tif_path = tmp_path / "beads.tif"
+    tifffile.imwrite(str(tif_path), stack)
+    cfg_path = tmp_path / "cfg.json"
+    cfg_path.write_text(json.dumps({
+        'input_file': str(tif_path),
+        'scale_xy': 0.26,
+        'scale_z': 2.0,
+        'mode': 'blob',
+        'output_dir': str(tmp_path),
+        'no_plots': True,
+    }))
+    monkeypatch.setattr('sys.argv', ['bead-analyzer', '--config', str(cfg_path)])
+    rc = cli.main()
+    assert rc == 0
+    captured = capsys.readouterr()
+    assert 'required' not in captured.err.lower()
