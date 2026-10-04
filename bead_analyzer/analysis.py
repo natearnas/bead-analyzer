@@ -28,6 +28,7 @@ from . import detectors
 from .core import (
     INTERACTIVE_PREVIEW_NOTE,
     RectangleDrawer,
+    _half_max_width,
     add_interaction_key,
     add_left_drag_pan,
     add_mousewheel_zoom,
@@ -128,9 +129,16 @@ def _quality_metrics(z_profile, peak_idx, min_snr=3.0, min_symmetry=0.6):
     if z_profile is None or len(z_profile) < 5:
         return None, None, None
     peak_idx = int(peak_idx)
-    # Baseline from regions away from peak
-    left = z_profile[:max(0, peak_idx - 2)]
-    right = z_profile[min(len(z_profile), peak_idx + 3):]
+    # Baseline from regions away from peak. The excluded zone scales with the
+    # peak width: a fixed +/-2 samples counts the flanks of a broad peak as
+    # noise and under-reports its SNR. It shrinks back toward +/-2 when the
+    # peak leaves too few samples outside it.
+    width = _half_max_width(z_profile, peak_idx)
+    for excl in range(max(2, int(np.ceil(1.5 * width))), 1, -1):
+        left = z_profile[:max(0, peak_idx - excl)]
+        right = z_profile[min(len(z_profile), peak_idx + excl + 1):]
+        if len(left) + len(right) >= 5:
+            break
     baseline_vals = np.concatenate([left, right]) if len(left) + len(right) >= 3 else z_profile
     baseline_med = float(np.median(baseline_vals))
     baseline_mad = float(np.median(np.abs(baseline_vals - baseline_med)))
