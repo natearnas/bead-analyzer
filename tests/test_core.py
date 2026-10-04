@@ -1,8 +1,18 @@
 """Tests for bead_analyzer.core FWHM calculation functions."""
 
+import json
+
+import matplotlib
 import numpy as np
 
-from bead_analyzer.analysis import _estimate_local_background, _parabolic_peak
+matplotlib.use('Agg')
+
+from bead_analyzer.analysis import (
+    _estimate_local_background,
+    _parabolic_peak,
+    _weighted_centroid_2d,
+    write_outputs,
+)
 from bead_analyzer.core import (
     calculate_fwhm_prominence,
     filter_by_qa,
@@ -49,6 +59,23 @@ def test_calculate_fwhm_prominence_too_short():
     """Too short profile returns None."""
     y = np.array([1, 2, 3])
     assert calculate_fwhm_prominence(y) is None
+
+
+def test_calculate_fwhm_prominence_ignores_secondary_peak():
+    """FWHM is measured around the selected (most prominent) peak only.
+
+    Previously l_idx/r_idx used the global first/last samples above the
+    half-prominence level, so a second peak anywhere in the profile inflated
+    the measured width.
+    """
+    x = np.arange(200)
+    sigma = 2.0
+    fwhm_expected = 2 * np.sqrt(2 * np.log(2)) * sigma
+    y = (gaussian_func(x, 10.0, 50.0, sigma, 0.0)
+         + gaussian_func(x, 6.0, 150.0, 3.0, 0.0) + 1.0)
+    result = calculate_fwhm_prominence(y, scale_factor=1.0)
+    assert result is not None
+    assert np.isclose(result['fwhm_px'], fwhm_expected, rtol=0.1)
 
 
 def test_fit_gaussian_fwhm():
@@ -203,3 +230,245 @@ def test_fwhm_prominence_with_nonzero_baseline():
     result = calculate_fwhm_prominence(y, scale_factor=1.0)
     assert result is not None
     assert np.isclose(result['fwhm_px'], fwhm_expected, rtol=0.15)
+
+
+def _make_synthetic_stack(nz=21, ny=61, nx=61, sigma_xy=2.0, sigma_z=3.0,
+                          background=100.0, amplitude=1000.0, center_xy=None):
+    """Deterministic 3D Gaussian bead on constant background.
+
+    The bead sits at the stack midpoint unless center_xy=(x0, y0) is given.
+    """
+    z, y, x = np.meshgrid(np.arange(nz), np.arange(ny), np.arange(nx), indexing='ij')
+    z0, y0, x0 = (nz - 1) / 2.0, (ny - 1) / 2.0, (nx - 1) / 2.0
+    if center_xy is not None:
+        x0, y0 = center_xy
+    stack = background + amplitude * np.exp(
+        -0.5 * (((x - x0) / sigma_xy) ** 2 +
+                ((y - y0) / sigma_xy) ** 2 +
+                ((z - z0) / sigma_z) ** 2)
+    )
+    return stack.astype(np.float32)
+
+
+def test_parabolic_peak_recovers_exact_vertex():
+    """Parabolic interpolation recovers the vertex of an exact parabola."""
+    x = np.arange(21, dtype=float)
+    x0 = 10.37
+    y = -2.0 * (x - x0) ** 2 + 50.0
+    est = _parabolic_peak(y, peak_idx=10, offset=0)
+    assert np.isclose(est, x0, atol=1e-9)
+
+
+def test_parabolic_peak_handles_plateau():
+    """Flat triple (zero curvature) falls back to the integer peak."""
+    y = np.array([0.0, 1.0, 1.0, 1.0, 0.0])
+    est = _parabolic_peak(y, peak_idx=2, offset=100)
+    assert est == 102.0
+
+
+def test_reject_outliers_mad_alignment_with_missing_values():
+    """Entries with None for data_key keep their position; rejection targets the right doc."""
+    results = [
+        {'id': 1, 'fwhm_z_gauss': 1.00},
+        {'id': 2, 'fwhm_z_gauss': None},
+        {'id': 3, 'fwhm_z_gauss': 1.05},
+        {'id': 4, 'fwhm_z_gauss': 0.95},
+        {'id': 5, 'fwhm_z_gauss': None},
+        {'id': 6, 'fwhm_z_gauss': 1.02},
+        {'id': 7, 'fwhm_z_gauss': 9.50},  # outlier
+        {'id': 8, 'fwhm_z_gauss': 0.98},
+    ]
+    filtered = reject_outliers_mad(results, data_key='fwhm_z_gauss', m=3.0)
+    kept_ids = [r['id'] for r in filtered]
+    assert 7 not in kept_ids
+    assert set(kept_ids) == {1, 2, 3, 4, 5, 6, 8}
+
+
+def test_weighted_centroid_subpixel_shift():
+    """Intensity-weighted centroid recovers a subpixel-shifted symmetric spot."""
+    sigma = 2.0
+    for dx, dy in [(0.3, -0.2), (-0.4, 0.45), (0.0, 0.0)]:
+        base = 20
+        yy, xx = np.mgrid[0:41, 0:41].astype(float)
+        img = np.exp(-0.5 * (((xx - (base + dx)) / sigma) ** 2 +
+                             ((yy - (base + dy)) / sigma) ** 2))
+        img += 0.1  # pedestal so min-subtraction does not redefine the center
+        cx, cy = _weighted_centroid_2d(img, x_offset=0, y_offset=0)
+        assert np.isclose(cx, base + dx, atol=0.05)
+        assert np.isclose(cy, base + dy, atol=0.05)
+
+
+def test_fit_gaussian_3d_units_anisotropic_scales():
+    """3D fit applies scale_xy to X/Y and scale_z to Z widths."""
+    nz, ny, nx = 15, 13, 11
+    z, y, x = np.meshgrid(np.arange(nz), np.arange(ny), np.arange(nx), indexing='ij')
+    sx, sy, sz = 2.0, 3.0, 4.0
+    vol = 100.0 * np.exp(
+        -0.5 * (((x - 5.0) / sx) ** 2 + ((y - 6.0) / sy) ** 2 + ((z - 7.0) / sz) ** 2)
+    ) + 10.0
+    res = fit_gaussian_3d(vol.astype(np.float32), scale_xy=0.1, scale_z=0.5)
+    assert res is not None
+    factor = 2 * np.sqrt(2 * np.log(2))
+    assert np.isclose(res['fwhm_x_um'], factor * sx * 0.1, rtol=0.05)
+    assert np.isclose(res['fwhm_y_um'], factor * sy * 0.1, rtol=0.05)
+    assert np.isclose(res['fwhm_z_um'], factor * sz * 0.5, rtol=0.05)
+
+
+def test_fit_gaussian_fwhm_short_profile():
+    """Very short profiles should still fit (sigma initial guess must be feasible)."""
+    x = np.arange(6)
+    y = gaussian_func(x, 10.0, 3.0, 1.0, 0.5)
+    result = fit_gaussian_fwhm(y, scale_factor=1.0, window_size=20)
+    assert result is not None
+    assert result['fwhm_um'] > 0
+
+
+def test_fit_gaussian_fwhm_wide_profile():
+    """Peaks wider than the default fit window are not truncated.
+
+    A fixed +/-10 sample window never reaches the baseline of a peak 24
+    samples wide, and the fitted FWHM read about 29% low.
+    """
+    x = np.arange(121)
+    fwhm_expected = 24.0
+    sigma = fwhm_expected / (2 * np.sqrt(2 * np.log(2)))
+    y = gaussian_func(x, 1000.0, 60.3, sigma, 0.0)
+    result = fit_gaussian_fwhm(y, scale_factor=1.0)
+    assert result is not None
+    assert np.isclose(result['fwhm_um'], fwhm_expected, rtol=0.01)
+
+
+def test_fit_gaussian_fwhm_robust_count_scale_narrow_peak():
+    """Robust fit converges on count-scale data for narrow peaks.
+
+    With soft-L1's default f_scale (1.0, in data units) every residual of a
+    raw-count profile looked like an outlier, and fits of peaks about 2 samples
+    wide often hit the evaluation limit and returned None.
+    """
+    rng = np.random.default_rng(0)
+    fwhm_expected = 2.0
+    sigma = fwhm_expected / (2 * np.sqrt(2 * np.log(2)))
+    x = np.arange(41)
+    fwhms = []
+    for _ in range(40):
+        mu = 20 + rng.uniform(-0.5, 0.5)
+        y = gaussian_func(x, 1000.0, mu, sigma, 100.0) + rng.normal(0, 50.0, x.size)
+        y = y - y.min()
+        result = fit_gaussian_fwhm(y, scale_factor=1.0, peak_hint=int(np.argmax(y)), robust=True)
+        assert result is not None
+        fwhms.append(result['fwhm_um'])
+    assert np.isclose(np.median(fwhms), fwhm_expected, rtol=0.1)
+
+
+def test_pipeline_xy_fwhm_sampling_accuracy(tmp_path):
+    """End-to-end XY FWHM through the profile-extraction path matches ground truth.
+
+    Uses run_blob with a points_file (skips detection). Fails if the sampled
+    profile spacing deviates from 1 px (the historical ll/(ll-1) bias).
+    """
+    from bead_analyzer import analysis
+
+    stack = _make_synthetic_stack(nz=21, ny=61, nx=61, sigma_xy=2.0, sigma_z=3.0)
+    scale_xy, scale_z = 0.26, 2.0
+    sigma_px = 2.0
+    fwhm_um_true = 2 * np.sqrt(2 * np.log(2)) * sigma_px * scale_xy
+
+    pts_file = tmp_path / "points.csv"
+    pts_file.write_text("x_coord,y_coord\n30,30\n")
+
+    results, _, _, _, _ = analysis.run_blob(
+        stack, scale_xy=scale_xy, scale_z=scale_z,
+        box_size=15, line_length=4.0, points_file=str(pts_file),
+    )
+    assert len(results) == 1
+    meas = results[0]['fwhm_x_prom']
+    assert meas is not None
+    assert np.isclose(meas, fwhm_um_true, rtol=0.04)
+    assert np.isclose(results[0]['fwhm_y_prom'], fwhm_um_true, rtol=0.04)
+
+
+def test_pipeline_xy_fwhm_off_pixel_center(tmp_path):
+    """XY FWHM stays accurate when the bead center falls between pixels.
+
+    Bilinear line sampling broadens off-pixel profiles (about +6% at a
+    half-pixel offset for sigma 1.5 px); a pixel-centered bead cannot see it.
+    """
+    from bead_analyzer import analysis
+
+    sigma_px, scale_xy = 1.5, 0.26
+    stack = _make_synthetic_stack(sigma_xy=sigma_px, center_xy=(30.5, 30.5))
+    fwhm_um_true = 2 * np.sqrt(2 * np.log(2)) * sigma_px * scale_xy
+
+    pts_file = tmp_path / "points.csv"
+    pts_file.write_text("x_coord,y_coord\n30,30\n")
+
+    results, _, _, _, _ = analysis.run_blob(
+        stack, scale_xy=scale_xy, scale_z=2.0,
+        box_size=15, line_length=4.0, points_file=str(pts_file), fit_gaussian=True,
+    )
+    assert len(results) == 1
+    assert np.isclose(results[0]['fwhm_x_gauss'], fwhm_um_true, rtol=0.02)
+    assert np.isclose(results[0]['fwhm_y_gauss'], fwhm_um_true, rtol=0.02)
+
+
+def test_write_outputs_average_bead_id_alignment(tmp_path):
+    """Average bead must pair volumes by result id, not by list position.
+
+    Simulates cellpose behavior: bead_volumes[0] is an empty placeholder for a
+    rejected bead, so zip(results, bead_volumes) pairs volumes to wrong ids.
+    """
+    import tifffile
+
+    def _vol(value):
+        v = np.full((7, 7, 7), value, dtype=np.float32)
+        v[3, 3, 3] = value + 100.0  # centered peak so centering shifts are ~0
+        return v
+
+    results = [
+        {'id': 2, 'x_coord': 5.0, 'y_coord': 5.0, 'fwhm_z_prom': 1.0},
+        {'id': 3, 'x_coord': 10.0, 'y_coord': 10.0, 'fwhm_z_prom': 1.1},
+    ]
+    bead_volumes = [np.array([]), _vol(10.0), _vol(20.0)]
+    profiles = [
+        {'id': 2, 'volume': _vol(10.0), 'z_profile': None,
+         'x_profile': None, 'y_profile': None},
+        {'id': 3, 'volume': _vol(20.0), 'z_profile': None,
+         'x_profile': None, 'y_profile': None},
+    ]
+    mip = np.zeros((30, 30), dtype=np.float32)
+    out_path = tmp_path / "synthetic.tif"
+
+    write_outputs(
+        results, bead_volumes, mip, out_path, 'cellpose',
+        scale_xy=0.1, scale_z=0.5,
+        upsample_factor=1, num_beads_avg=20, profiles=profiles, stack=None,
+    )
+    avg = tifffile.imread(tmp_path / "synthetic_average_bead_stack.tif")
+    # Correct pairing: volumes for ids 2 and 3 -> background average (10+20)/2 = 15.
+    # Mis-paired (positional) selection picks volumes of the wrong ids instead.
+    assert np.isclose(float(avg[0, 0, 0]), 15.0, atol=2.0)
+
+
+def test_cli_config_supplies_required_scale_args(tmp_path, monkeypatch, capsys):
+    """--config can supply scale_xy/scale_z without argparse requiring them on the CLI."""
+    import tifffile
+
+    from bead_analyzer import cli
+
+    stack = _make_synthetic_stack(nz=15, ny=41, nx=41, sigma_xy=2.0, sigma_z=3.0)
+    tif_path = tmp_path / "beads.tif"
+    tifffile.imwrite(str(tif_path), stack)
+    cfg_path = tmp_path / "cfg.json"
+    cfg_path.write_text(json.dumps({
+        'input_file': str(tif_path),
+        'scale_xy': 0.26,
+        'scale_z': 2.0,
+        'mode': 'blob',
+        'output_dir': str(tmp_path),
+        'no_plots': True,
+    }))
+    monkeypatch.setattr('sys.argv', ['bead-analyzer', '--config', str(cfg_path)])
+    rc = cli.main()
+    assert rc == 0
+    captured = capsys.readouterr()
+    assert 'required' not in captured.err.lower()

@@ -103,9 +103,9 @@ Add `--na 1.4 --fluorophore "FITC"` to record experimental metadata in the summa
 - **Cellpose in this pipeline**: intended for bead-specific custom models. Generic biological pretrained models (for cells/nuclei) often underperform on tiny PSF beads.
 - **Practical default for beads**: start with Blob or Trackpy for most datasets, then use StarDist/Cellpose for dense, overlapping, or otherwise difficult fields where classical detectors struggle.
 
-### AI Methods Not Yet Integrated
+### Learned Detectors Not Yet Integrated
 
-For bead-center localization, some labs report strong results with keypoint/heatmap spot detectors (2D) and heatmap-regression or U-Net-style models (3D). These are not currently integrated in this repository; current AI options are StarDist and Cellpose.
+For bead-center localization, some labs report strong results with keypoint/heatmap spot detectors (2D) and heatmap-regression or U-Net-style models (3D). These are not currently integrated in this repository; the current deep-learning options are StarDist and Cellpose.
 
 ## Outputs
 
@@ -144,9 +144,14 @@ For PSF-like sub-resolution spots, keep `peak`. For resolved hollow-looking bead
 
 ### 3. Profile Extraction
 
-Three 1D intensity profiles (Z, X, and Y) are drawn through the refined center using bilinear interpolation (`scipy.ndimage.map_coordinates`, `order=1`) for lateral axes.
+The lateral (X and Y) profiles are single-pixel-wide lines through the refined center at the brightest Z plane, sampled at 1 px spacing with cubic-spline interpolation (`scipy.ndimage.map_coordinates`, `order=3`).
 
-The line length (`--line_length`, default 5 um) should be at least 3x the expected FWHM so the profile tails reach background. The box size (`--box_size`, default 15 px) controls how many XY pixels are averaged for the Z profile -- larger boxes improve Z-profile SNR but blur if beads are close together.
+The Z profile is not a line through the center: it is the **mean over the `--box_size` x `--box_size` XY box at every slice**. `fwhm_z_prom` and `fwhm_z_gauss` are therefore widths of a laterally integrated profile, and what that means depends on the microscope:
+
+- **Light-sheet:** integrating over the box follows the illumination profile, so the Z FWHM tracks the light-sheet thickness as long as the box holds the defocused bead image. As a guide, the box half-width should be at least `0.75 * sheet FWHM * tan(asin(NA / n))` plus the in-focus spot radius; the default box is ample at low detection NA.
+- **Widefield:** defocus spreads light sideways without removing it, so the box-averaged Z profile is several times wider than the on-axis axial PSF and grows with the box size. When the axial PSF itself is what you need, use `--fit_3d`: its Z FWHM comes from a 3D fit to the bead volume and stays close to the on-axis value.
+
+The line length (`--line_length`, default 5 um) should be at least 3x the expected FWHM so the profile tails reach background. The box size (`--box_size`, default 15 px) sets the Z-profile averaging area -- larger boxes improve Z-profile SNR but pick up neighbors if beads are close together.
 
 ### 4. Background Subtraction
 
@@ -181,11 +186,13 @@ Enable Gaussian fitting with `--fit_gaussian`.
 
 All Gaussian fits (1D and 3D) enforce **parameter bounds**: amplitude > 0, sigma >= 0.3 px, center within the data window. This prevents degenerate fits (negative width, negative amplitude) that could silently corrupt results.
 
+The 1D fit uses a window of at least `--fit_window` samples (default 20) around the peak and widens it automatically to +/-1.5x the peak's half-maximum width, so both tails of a broad peak (for example a thick light sheet sampled at fine Z steps) reach the baseline.
+
 ### 7. Quality Assurance
 
 After fitting, each bead receives two QA scores:
 
-- **SNR**: peak intensity above noise (estimated from the Z-profile baseline). Default threshold: 3.0.
+- **SNR**: peak intensity above noise (estimated from the Z-profile baseline, taken outside +/-1.5x the peak's half-maximum width). Default threshold: 3.0.
 - **Symmetry**: how symmetric the Z-profile is around its peak (1.0 = perfect). Default threshold: 0.6.
 
 With `--qa_auto_reject`, beads below these thresholds are automatically removed from the summary statistics and written to a separate `*_rejected_beads.csv`.
@@ -340,7 +347,7 @@ Author: Nathan O'Connor, [Arnas Technologies](https://arnastech.com) ([ORCID: 00
 
 ### Code Availability statement (for manuscripts)
 
-> The custom code used to detect beads and measure lateral and axial FWHM of the detection point spread function is available at https://github.com/natearnas/bead-analyzer under the MIT license. The version used in this study (v1.2.1) is archived on Zenodo (concept DOI: 10.5281/zenodo.20031694; version-specific DOI for v1.2.1: 10.5281/zenodo.20031695). Documentation, command-line examples, and a Windows GUI build are included in the repository.
+> The custom code used to detect beads and measure lateral and axial FWHM of the system point spread function is available at https://github.com/natearnas/bead-analyzer under the MIT license. The version used in this study (v1.2.1) is archived on Zenodo (concept DOI: 10.5281/zenodo.20031694; version-specific DOI for v1.2.1: 10.5281/zenodo.20031695). Documentation, command-line examples, and a Windows GUI build are included in the repository.
 
 ## Acknowledgments
 

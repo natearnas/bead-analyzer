@@ -336,6 +336,18 @@ def gaussian_func(x, A, mu, sigma, C):
     return A * np.exp(-0.5 * ((x - mu) / sigma) ** 2) + C
 
 
+def _half_max_width(profile, peak_idx):
+    """Rough peak width in samples: the run of samples above half maximum around the peak."""
+    base = float(np.min(profile))
+    half = base + 0.5 * (float(profile[peak_idx]) - base)
+    left = right = int(peak_idx)
+    while left > 0 and profile[left - 1] > half:
+        left -= 1
+    while right < len(profile) - 1 and profile[right + 1] > half:
+        right += 1
+    return right - left + 1
+
+
 def fit_gaussian_fwhm(profile, scale_factor=1.0, window_size=20, peak_hint=None,
                       robust=False):
     """
@@ -348,7 +360,9 @@ def fit_gaussian_fwhm(profile, scale_factor=1.0, window_size=20, peak_hint=None,
     scale_factor : float
         Pixel-to-µm conversion factor.
     window_size : int
-        Window around the peak used for fitting.
+        Minimum window around the peak used for fitting. The window is widened
+        to +/-1.5x the peak's half-maximum width when that is larger, so both
+        tails of a broad peak reach the baseline.
     peak_hint : int or None
         Index hint for the peak location.
     robust : bool
@@ -363,8 +377,11 @@ def fit_gaussian_fwhm(profile, scale_factor=1.0, window_size=20, peak_hint=None,
     if profile is None or len(profile) < 4:
         return None
     try:
-        pk = peak_hint if peak_hint is not None else np.argmax(profile)
-        hw = window_size // 2
+        pk = int(peak_hint) if peak_hint is not None else int(np.argmax(profile))
+        # A fixed window truncates peaks wider than ~16 samples: the baseline is
+        # then never sampled and the fitted width reads low.
+        width = _half_max_width(profile, pk)
+        hw = max(window_size // 2, int(np.ceil(1.5 * width)))
         xs = np.arange(max(0, pk - hw), min(len(profile), pk + hw + 1))
         ys = profile[xs]
         if len(ys) < 4:
@@ -372,16 +389,19 @@ def fit_gaussian_fwhm(profile, scale_factor=1.0, window_size=20, peak_hint=None,
         A_init = float(ys.max() - ys.min())
         if A_init <= 0:
             return None
-        sigma_init = max(0.8, window_size / 4.0)
+        sigma_init = min(max(0.8, width / (2 * np.sqrt(2 * np.log(2)))), float(len(profile)))
         p0 = [A_init, float(pk), sigma_init, float(ys.min())]
 
         if robust:
             bounds_lo = [0.0, float(xs[0]), 0.3, float(ys.min()) - 0.5 * A_init]
             bounds_hi = [A_init * 5.0, float(xs[-1]), float(len(profile)), float(ys.max())]
+            # f_scale sets the residual size treated as an inlier. Its default of
+            # 1.0 is in data units, so on count-scale data every residual looked
+            # like an outlier and the fit often failed to converge.
             popt, _ = curve_fit(
                 gaussian_func, xs, ys, p0=p0,
                 bounds=(bounds_lo, bounds_hi),
-                method='trf', loss='soft_l1', maxfev=5000,
+                method='trf', loss='soft_l1', f_scale=0.1 * A_init, maxfev=5000,
             )
         else:
             bounds_lo = [0.0, float(xs[0]), 0.3, float(ys.min()) - 0.5 * A_init]
@@ -512,6 +532,7 @@ def fit_gaussian_3d(volume, scale_xy, scale_z, max_iter=2000, robust=False):
         )
         if robust:
             fit_kwargs['loss'] = 'soft_l1'
+            fit_kwargs['f_scale'] = 0.1 * A_init
         popt, _ = curve_fit(
             gaussian_3d, coords, data, p0=p0, **fit_kwargs
         )

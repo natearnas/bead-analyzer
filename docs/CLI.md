@@ -22,14 +22,14 @@ Or: `python -m bead_analyzer.cli INPUT.tif ...`
 |--------|---------|-------------|
 | `--mode` | blob | `manual`, `blob`, `trackpy`, `stardist`, or `cellpose` |
 | `--channel` | 0 | Channel index for 4D stacks |
-| `--box_size` | 15 | Box size for Z-profile (pixels) |
+| `--box_size` | 15 | Box size for Z-profile (pixels); the Z profile is the mean over this XY box at each slice |
 | `--center_mode` | peak | XY center refinement mode: `peak`, `centroid`, `radial`, `edge` |
 | `--line_length` | 5.0 | Line length for XY FWHM (µm) |
 | `--z_smooth` | 1.0 (manual) | Gaussian sigma for Z smoothing |
 | `--detrend` | False | Linear detrending of profiles |
 | `--subtract_background` | False | Interactive background ROI |
 | `--fit_gaussian` | False | Gaussian fit FWHM |
-| `--fit_window` | 20 | Window for Gaussian fit (pixels) |
+| `--fit_window` | 20 | Minimum window for Gaussian fit (pixels); widened automatically for broad peaks |
 | `--gamma` | 1.0 | Display gamma |
 | `--output_dir` | (input dir) | Output directory |
 | `--no_plots` | False | Suppress plots |

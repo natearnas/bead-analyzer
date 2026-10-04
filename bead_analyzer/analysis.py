@@ -28,6 +28,7 @@ from . import detectors
 from .core import (
     INTERACTIVE_PREVIEW_NOTE,
     RectangleDrawer,
+    _half_max_width,
     add_interaction_key,
     add_left_drag_pan,
     add_mousewheel_zoom,
@@ -128,9 +129,16 @@ def _quality_metrics(z_profile, peak_idx, min_snr=3.0, min_symmetry=0.6):
     if z_profile is None or len(z_profile) < 5:
         return None, None, None
     peak_idx = int(peak_idx)
-    # Baseline from regions away from peak
-    left = z_profile[:max(0, peak_idx - 2)]
-    right = z_profile[min(len(z_profile), peak_idx + 3):]
+    # Baseline from regions away from peak. The excluded zone scales with the
+    # peak width: a fixed +/-2 samples counts the flanks of a broad peak as
+    # noise and under-reports its SNR. It shrinks back toward +/-2 when the
+    # peak leaves too few samples outside it.
+    width = _half_max_width(z_profile, peak_idx)
+    for excl in range(max(2, int(np.ceil(1.5 * width))), 1, -1):
+        left = z_profile[:max(0, peak_idx - excl)]
+        right = z_profile[min(len(z_profile), peak_idx + excl + 1):]
+        if len(left) + len(right) >= 5:
+            break
     baseline_vals = np.concatenate([left, right]) if len(left) + len(right) >= 3 else z_profile
     baseline_med = float(np.median(baseline_vals))
     baseline_mad = float(np.median(np.abs(baseline_vals - baseline_med)))
@@ -177,6 +185,28 @@ def _estimate_local_background(slice_2d, x_c, y_c, inner_r, outer_r):
     if len(vals) < 8:
         return float(np.min(slice_2d))
     return float(np.median(vals))
+
+
+def _sample_line_profile(slice_2d, x_c, y_c, half_len, n_samples, axis):
+    """Sample a 1 px-spaced intensity line through (x_c, y_c) along 'X' or 'Y'.
+
+    Uses cubic-spline interpolation. Bilinear interpolation averages neighboring
+    pixels whenever the line falls between pixel centers, which broadens the
+    profile and biases the FWHM high for small spots.
+    """
+    offsets = np.linspace(-half_len, half_len, n_samples)
+    if axis == 'X':
+        ys, xs = np.full(n_samples, y_c), x_c + offsets
+    else:
+        ys, xs = y_c + offsets, np.full(n_samples, x_c)
+    # Interpolate on a local patch so the spline prefilter does not run over the
+    # whole slice for every bead; the margin keeps its edge effects negligible.
+    pad = 10
+    y0 = max(0, int(np.floor(ys.min())) - pad)
+    y1 = min(slice_2d.shape[0], int(np.ceil(ys.max())) + pad + 1)
+    x0 = max(0, int(np.floor(xs.min())) - pad)
+    x1 = min(slice_2d.shape[1], int(np.ceil(xs.max())) + pad + 1)
+    return map_coordinates(slice_2d[y0:y1, x0:x1], np.vstack((ys - y0, xs - x0)), order=3)
 
 
 def _parabolic_peak(values, peak_idx, offset):
@@ -665,16 +695,12 @@ def run_manual(stack, scale_xy, scale_z, box_size=21, line_length=5.0,
         line_len_px = max(5, int(line_length / scale_xy))
         if line_len_px % 2 == 0:
             line_len_px += 1
-        half_line = line_len_px / 2.0
+        half_line = (line_len_px - 1) / 2.0
         fwhms = {}
         x_profile = None
         y_profile = None
         for axis in ['X', 'Y']:
-            if axis == 'X':
-                coords = np.vstack((np.full(line_len_px, y_c), np.linspace(x_c - half_line, x_c + half_line, line_len_px)))
-            else:
-                coords = np.vstack((np.linspace(y_c - half_line, y_c + half_line, line_len_px), np.full(line_len_px, x_c)))
-            raw = map_coordinates(sl, coords, order=1)
+            raw = _sample_line_profile(sl, x_c, y_c, half_line, line_len_px, axis)
             if detrend:
                 proc = signal.detrend(raw)
             elif local_background:
@@ -894,13 +920,12 @@ def run_stardist(stack, scale_xy, scale_z, box_size=7, line_length=5.0,
         ll = max(5, int(line_length / scale_xy))
         if ll % 2 == 0:
             ll += 1
-        hl = ll / 2.0
+        hl = (ll - 1) / 2.0
         fwhms = {}
         x_profile = None
         y_profile = None
         for axis in ['X', 'Y']:
-            coords = np.vstack((np.full(ll, y_c), np.linspace(x_c - hl, x_c + hl, ll))) if axis == 'X' else np.vstack((np.linspace(y_c - hl, y_c + hl, ll), np.full(ll, x_c)))
-            prof = map_coordinates(sl, coords, order=1)
+            prof = _sample_line_profile(sl, x_c, y_c, hl, ll, axis)
             if detrend:
                 pr = signal.detrend(prof)
             elif local_background:
@@ -1143,14 +1168,13 @@ def run_cellpose(stack, scale_xy, scale_z, model_path, box_size=15, line_length=
         ll = max(5, int(line_length / scale_xy))
         if ll % 2 == 0:
             ll += 1
-        hl = ll / 2.0
+        hl = (ll - 1) / 2.0
         fwhms = {}
         failed = False
         x_profile = None
         y_profile = None
         for axis in ['X', 'Y']:
-            coords = np.vstack((np.full(ll, y_c), np.linspace(x_c - hl, x_c + hl, ll))) if axis == 'X' else np.vstack((np.linspace(y_c - hl, y_c + hl, ll), np.full(ll, x_c)))
-            prof = map_coordinates(sl, coords, order=1)
+            prof = _sample_line_profile(sl, x_c, y_c, hl, ll, axis)
             if detrend:
                 pr = signal.detrend(prof)
             elif local_background:
@@ -1178,7 +1202,7 @@ def run_cellpose(stack, scale_xy, scale_z, model_path, box_size=15, line_length=
         log_entry['status'] = 'accepted'
         bead_log.append(log_entry)
         w3, h3 = img_w / 3.0, img_h / 3.0
-        row, col = int(y_c // h3), int(x_c // w3)
+        row, col = min(int(y_c // h3), 2), min(int(x_c // w3), 2)
         qa_snr, qa_sym, qa_flag = _quality_metrics(z_raw, best_z, qa_min_snr, qa_min_symmetry)
 
         zr = box_size
@@ -1413,11 +1437,22 @@ def write_outputs(results, bead_volumes, mip, file_path, mode, scale_xy, scale_z
             sel_ids = sel['id'].tolist()
         else:
             sel_ids = df['id'].tolist()
-        volume_by_id = {
-            int(r.get('id')): v
-            for r, v in zip(results, bead_volumes)
-            if v is not None and getattr(v, "size", 0) > 0
-        }
+        if profiles:
+            # Prefer profiles: they are keyed by result id even when bead_volumes
+            # contains empty placeholders for rejected beads (cellpose mode).
+            volume_by_id = {
+                int(p['id']): p.get('volume')
+                for p in profiles
+                if p.get('id') is not None
+                and p.get('volume') is not None
+                and getattr(p.get('volume'), "size", 0) > 0
+            }
+        else:
+            volume_by_id = {
+                int(r.get('id')): v
+                for r, v in zip(results, bead_volumes)
+                if v is not None and getattr(v, "size", 0) > 0
+            }
         sel_vols = [volume_by_id[sid] for sid in sel_ids if sid in volume_by_id]
         if sel_vols:
             valid_vols = sel_vols
@@ -1451,7 +1486,7 @@ def _save_average_bead(volumes, file_path, scale_xy, scale_z, upsample_factor=4)
     for vol in volumes:
         up = zoom(vol, upsample_factor, order=3)
         peak = np.unravel_index(np.argmax(up), up.shape)
-        center = np.array(up.shape) / 2.0
+        center = (np.array(up.shape) - 1) / 2.0
         centered.append(shift(up, center - peak, order=3, mode='constant', cval=0))
     max_d = np.max([v.shape for v in centered], axis=0)
     padded = [np.pad(v, [(0, max_d[i] - v.shape[i]) for i in range(3)], mode='constant', constant_values=0) for v in centered]

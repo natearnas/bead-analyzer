@@ -45,6 +45,24 @@ def test_quality_metrics_snr_finite_flat_baseline():
     assert snr < 1e6, f"SNR should be finite and bounded, got {snr}"
 
 
+def test_quality_metrics_snr_independent_of_peak_width():
+    """A broad peak's flanks must not be counted as baseline noise.
+
+    With a fixed +/-2 sample exclusion a true SNR of 20 read below the 3.0
+    gate for a peak 16 samples wide in a 41-slice profile.
+    """
+    rng = np.random.default_rng(0)
+    x = np.arange(41, dtype=np.float64)
+    noise = rng.normal(0.0, 5.0, x.size)  # amplitude 100 -> true SNR 20
+    snrs = {}
+    for fwhm in (2.0, 16.0):
+        sigma = fwhm / (2 * np.sqrt(2 * np.log(2)))
+        profile = 100.0 * np.exp(-0.5 * ((x - 20) / sigma) ** 2) + 10.0 + noise
+        snrs[fwhm], _, _ = _quality_metrics(profile, peak_idx=20)
+    assert snrs[16.0] > 10.0, f"Broad-peak SNR under-reported: {snrs[16.0]}"
+    assert snrs[16.0] > 0.5 * snrs[2.0]
+
+
 def test_quality_metrics_too_short_returns_none():
     """Profile shorter than 5 returns (None, None, None)."""
     assert _quality_metrics(np.array([1, 2, 3]), peak_idx=1) == (None, None, None)

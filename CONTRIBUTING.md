@@ -34,7 +34,7 @@ Each tagged GitHub release is auto-archived to Zenodo via the `.zenodo.json` web
 
 Steps:
 
-1. Bump `version` in [pyproject.toml](pyproject.toml) and [CITATION.cff](CITATION.cff); update `date-released` in CITATION.cff to today.
+1. Bump the version in [pyproject.toml](pyproject.toml), [CITATION.cff](CITATION.cff), [bead_analyzer/__init__.py](bead_analyzer/__init__.py) (`__version__`) and [.zenodo.json](.zenodo.json) (`version`, which Zenodo uses to label the deposit); update `date-released` in CITATION.cff to today.
 2. Add a new entry at the top of [CHANGELOG.md](CHANGELOG.md) following the Keep a Changelog format (`## [X.Y.Z] - YYYY-MM-DD` with `### Added` / `### Changed` / `### Fixed` subsections as needed).
 3. If author list, affiliation, or ORCIDs changed, update [.zenodo.json](.zenodo.json) `creators` and the matching CITATION.cff `authors` block.
 4. Commit (e.g. `release X.Y.Z`) and push to `main`.

@@ -630,7 +630,7 @@ def main():
 
     frame_sample = ctk.CTkFrame(left_frame, fg_color="transparent")
     frame_sample.pack(fill="x", **pad)
-    num_beads_label = ctk.CTkLabel(frame_sample, text="Percentage of beads to avg (1-100):")
+    num_beads_label = ctk.CTkLabel(frame_sample, text="Number of beads to average:")
     num_beads_label.pack(side="left", padx=(0, 8))
     num_beads_entry = ctk.CTkEntry(frame_sample, textvariable=num_beads_avg_var, width=50)
     num_beads_entry.pack(side="left")
@@ -947,7 +947,7 @@ def main():
         "centering. edge: gradient-symmetry center with edge-weighted Z plane selection, "
         "often better for annular/hollow-looking beads.",
         is_child=True)
-    _add_setting_doc("num_beads_avg", "Percentage of beads to avg (1-100)",
+    _add_setting_doc("num_beads_avg", "Number of beads to average",
         "Number of beads used for the average bead profile. Beads are ranked by "
         "distance from the median Z-FWHM, so the most representative beads are "
         "selected first. Minimum: 1. Default: 20.",
