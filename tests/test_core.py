@@ -2,7 +2,11 @@
 
 import numpy as np
 
-from bead_analyzer.analysis import _estimate_local_background, _parabolic_peak
+from bead_analyzer.analysis import (
+    _estimate_local_background,
+    _parabolic_peak,
+    _weighted_centroid_2d,
+)
 from bead_analyzer.core import (
     calculate_fwhm_prominence,
     filter_by_qa,
@@ -220,3 +224,67 @@ def test_fwhm_prominence_with_nonzero_baseline():
     result = calculate_fwhm_prominence(y, scale_factor=1.0)
     assert result is not None
     assert np.isclose(result['fwhm_px'], fwhm_expected, rtol=0.15)
+
+
+def test_parabolic_peak_recovers_exact_vertex():
+    """Parabolic interpolation recovers the vertex of an exact parabola."""
+    x = np.arange(21, dtype=float)
+    x0 = 10.37
+    y = -2.0 * (x - x0) ** 2 + 50.0
+    est = _parabolic_peak(y, peak_idx=10, offset=0)
+    assert np.isclose(est, x0, atol=1e-9)
+
+
+def test_parabolic_peak_handles_plateau():
+    """Flat triple (zero curvature) falls back to the integer peak."""
+    y = np.array([0.0, 1.0, 1.0, 1.0, 0.0])
+    est = _parabolic_peak(y, peak_idx=2, offset=100)
+    assert est == 102.0
+
+
+def test_reject_outliers_mad_alignment_with_missing_values():
+    """Entries with None for data_key keep their position; rejection targets the right doc."""
+    results = [
+        {'id': 1, 'fwhm_z_gauss': 1.00},
+        {'id': 2, 'fwhm_z_gauss': None},
+        {'id': 3, 'fwhm_z_gauss': 1.05},
+        {'id': 4, 'fwhm_z_gauss': 0.95},
+        {'id': 5, 'fwhm_z_gauss': None},
+        {'id': 6, 'fwhm_z_gauss': 1.02},
+        {'id': 7, 'fwhm_z_gauss': 9.50},  # outlier
+        {'id': 8, 'fwhm_z_gauss': 0.98},
+    ]
+    filtered = reject_outliers_mad(results, data_key='fwhm_z_gauss', m=3.0)
+    kept_ids = [r['id'] for r in filtered]
+    assert 7 not in kept_ids
+    assert set(kept_ids) == {1, 2, 3, 4, 5, 6, 8}
+
+
+def test_weighted_centroid_subpixel_shift():
+    """Intensity-weighted centroid recovers a subpixel-shifted symmetric spot."""
+    sigma = 2.0
+    for dx, dy in [(0.3, -0.2), (-0.4, 0.45), (0.0, 0.0)]:
+        base = 20
+        yy, xx = np.mgrid[0:41, 0:41].astype(float)
+        img = np.exp(-0.5 * (((xx - (base + dx)) / sigma) ** 2 +
+                             ((yy - (base + dy)) / sigma) ** 2))
+        img += 0.1  # pedestal so min-subtraction does not redefine the center
+        cx, cy = _weighted_centroid_2d(img, x_offset=0, y_offset=0)
+        assert np.isclose(cx, base + dx, atol=0.05)
+        assert np.isclose(cy, base + dy, atol=0.05)
+
+
+def test_fit_gaussian_3d_units_anisotropic_scales():
+    """3D fit applies scale_xy to X/Y and scale_z to Z widths."""
+    nz, ny, nx = 15, 13, 11
+    z, y, x = np.meshgrid(np.arange(nz), np.arange(ny), np.arange(nx), indexing='ij')
+    sx, sy, sz = 2.0, 3.0, 4.0
+    vol = 100.0 * np.exp(
+        -0.5 * (((x - 5.0) / sx) ** 2 + ((y - 6.0) / sy) ** 2 + ((z - 7.0) / sz) ** 2)
+    ) + 10.0
+    res = fit_gaussian_3d(vol.astype(np.float32), scale_xy=0.1, scale_z=0.5)
+    assert res is not None
+    factor = 2 * np.sqrt(2 * np.log(2))
+    assert np.isclose(res['fwhm_x_um'], factor * sx * 0.1, rtol=0.05)
+    assert np.isclose(res['fwhm_y_um'], factor * sy * 0.1, rtol=0.05)
+    assert np.isclose(res['fwhm_z_um'], factor * sz * 0.5, rtol=0.05)
