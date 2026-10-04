@@ -395,10 +395,13 @@ def fit_gaussian_fwhm(profile, scale_factor=1.0, window_size=20, peak_hint=None,
         if robust:
             bounds_lo = [0.0, float(xs[0]), 0.3, float(ys.min()) - 0.5 * A_init]
             bounds_hi = [A_init * 5.0, float(xs[-1]), float(len(profile)), float(ys.max())]
+            # f_scale sets the residual size treated as an inlier. Its default of
+            # 1.0 is in data units, so on count-scale data every residual looked
+            # like an outlier and the fit often failed to converge.
             popt, _ = curve_fit(
                 gaussian_func, xs, ys, p0=p0,
                 bounds=(bounds_lo, bounds_hi),
-                method='trf', loss='soft_l1', maxfev=5000,
+                method='trf', loss='soft_l1', f_scale=0.1 * A_init, maxfev=5000,
             )
         else:
             bounds_lo = [0.0, float(xs[0]), 0.3, float(ys.min()) - 0.5 * A_init]
@@ -529,6 +532,7 @@ def fit_gaussian_3d(volume, scale_xy, scale_z, max_iter=2000, robust=False):
         )
         if robust:
             fit_kwargs['loss'] = 'soft_l1'
+            fit_kwargs['f_scale'] = 0.1 * A_init
         popt, _ = curve_fit(
             gaussian_3d, coords, data, p0=p0, **fit_kwargs
         )

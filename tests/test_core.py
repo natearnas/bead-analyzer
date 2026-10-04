@@ -338,6 +338,28 @@ def test_fit_gaussian_fwhm_wide_profile():
     assert np.isclose(result['fwhm_um'], fwhm_expected, rtol=0.01)
 
 
+def test_fit_gaussian_fwhm_robust_count_scale_narrow_peak():
+    """Robust fit converges on count-scale data for narrow peaks.
+
+    With soft-L1's default f_scale (1.0, in data units) every residual of a
+    raw-count profile looked like an outlier, and fits of peaks about 2 samples
+    wide often hit the evaluation limit and returned None.
+    """
+    rng = np.random.default_rng(0)
+    fwhm_expected = 2.0
+    sigma = fwhm_expected / (2 * np.sqrt(2 * np.log(2)))
+    x = np.arange(41)
+    fwhms = []
+    for _ in range(40):
+        mu = 20 + rng.uniform(-0.5, 0.5)
+        y = gaussian_func(x, 1000.0, mu, sigma, 100.0) + rng.normal(0, 50.0, x.size)
+        y = y - y.min()
+        result = fit_gaussian_fwhm(y, scale_factor=1.0, peak_hint=int(np.argmax(y)), robust=True)
+        assert result is not None
+        fwhms.append(result['fwhm_um'])
+    assert np.isclose(np.median(fwhms), fwhm_expected, rtol=0.1)
+
+
 def test_pipeline_xy_fwhm_sampling_accuracy(tmp_path):
     """End-to-end XY FWHM through the profile-extraction path matches ground truth.
 
