@@ -336,6 +336,18 @@ def gaussian_func(x, A, mu, sigma, C):
     return A * np.exp(-0.5 * ((x - mu) / sigma) ** 2) + C
 
 
+def _half_max_width(profile, peak_idx):
+    """Rough peak width in samples: the run of samples above half maximum around the peak."""
+    base = float(np.min(profile))
+    half = base + 0.5 * (float(profile[peak_idx]) - base)
+    left = right = int(peak_idx)
+    while left > 0 and profile[left - 1] > half:
+        left -= 1
+    while right < len(profile) - 1 and profile[right + 1] > half:
+        right += 1
+    return right - left + 1
+
+
 def fit_gaussian_fwhm(profile, scale_factor=1.0, window_size=20, peak_hint=None,
                       robust=False):
     """
@@ -348,7 +360,9 @@ def fit_gaussian_fwhm(profile, scale_factor=1.0, window_size=20, peak_hint=None,
     scale_factor : float
         Pixel-to-µm conversion factor.
     window_size : int
-        Window around the peak used for fitting.
+        Minimum window around the peak used for fitting. The window is widened
+        to +/-1.5x the peak's half-maximum width when that is larger, so both
+        tails of a broad peak reach the baseline.
     peak_hint : int or None
         Index hint for the peak location.
     robust : bool
@@ -363,8 +377,11 @@ def fit_gaussian_fwhm(profile, scale_factor=1.0, window_size=20, peak_hint=None,
     if profile is None or len(profile) < 4:
         return None
     try:
-        pk = peak_hint if peak_hint is not None else np.argmax(profile)
-        hw = window_size // 2
+        pk = int(peak_hint) if peak_hint is not None else int(np.argmax(profile))
+        # A fixed window truncates peaks wider than ~16 samples: the baseline is
+        # then never sampled and the fitted width reads low.
+        width = _half_max_width(profile, pk)
+        hw = max(window_size // 2, int(np.ceil(1.5 * width)))
         xs = np.arange(max(0, pk - hw), min(len(profile), pk + hw + 1))
         ys = profile[xs]
         if len(ys) < 4:
@@ -372,7 +389,7 @@ def fit_gaussian_fwhm(profile, scale_factor=1.0, window_size=20, peak_hint=None,
         A_init = float(ys.max() - ys.min())
         if A_init <= 0:
             return None
-        sigma_init = max(0.8, window_size / 4.0)
+        sigma_init = min(max(0.8, width / (2 * np.sqrt(2 * np.log(2)))), float(len(profile)))
         p0 = [A_init, float(pk), sigma_init, float(ys.min())]
 
         if robust:

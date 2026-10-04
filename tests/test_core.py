@@ -314,6 +314,30 @@ def test_fit_gaussian_3d_units_anisotropic_scales():
     assert np.isclose(res['fwhm_z_um'], factor * sz * 0.5, rtol=0.05)
 
 
+def test_fit_gaussian_fwhm_short_profile():
+    """Very short profiles should still fit (sigma initial guess must be feasible)."""
+    x = np.arange(6)
+    y = gaussian_func(x, 10.0, 3.0, 1.0, 0.5)
+    result = fit_gaussian_fwhm(y, scale_factor=1.0, window_size=20)
+    assert result is not None
+    assert result['fwhm_um'] > 0
+
+
+def test_fit_gaussian_fwhm_wide_profile():
+    """Peaks wider than the default fit window are not truncated.
+
+    A fixed +/-10 sample window never reaches the baseline of a peak 24
+    samples wide, and the fitted FWHM read about 29% low.
+    """
+    x = np.arange(121)
+    fwhm_expected = 24.0
+    sigma = fwhm_expected / (2 * np.sqrt(2 * np.log(2)))
+    y = gaussian_func(x, 1000.0, 60.3, sigma, 0.0)
+    result = fit_gaussian_fwhm(y, scale_factor=1.0)
+    assert result is not None
+    assert np.isclose(result['fwhm_um'], fwhm_expected, rtol=0.01)
+
+
 def test_pipeline_xy_fwhm_sampling_accuracy(tmp_path):
     """End-to-end XY FWHM through the profile-extraction path matches ground truth.
 
