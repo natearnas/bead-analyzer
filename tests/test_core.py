@@ -1,11 +1,15 @@
 """Tests for bead_analyzer.core FWHM calculation functions."""
 
+import matplotlib
 import numpy as np
+
+matplotlib.use('Agg')
 
 from bead_analyzer.analysis import (
     _estimate_local_background,
     _parabolic_peak,
     _weighted_centroid_2d,
+    write_outputs,
 )
 from bead_analyzer.core import (
     calculate_fwhm_prominence,
@@ -357,3 +361,41 @@ def test_pipeline_xy_fwhm_off_pixel_center(tmp_path):
     assert len(results) == 1
     assert np.isclose(results[0]['fwhm_x_gauss'], fwhm_um_true, rtol=0.02)
     assert np.isclose(results[0]['fwhm_y_gauss'], fwhm_um_true, rtol=0.02)
+
+
+def test_write_outputs_average_bead_id_alignment(tmp_path):
+    """Average bead must pair volumes by result id, not by list position.
+
+    Simulates cellpose behavior: bead_volumes[0] is an empty placeholder for a
+    rejected bead, so zip(results, bead_volumes) pairs volumes to wrong ids.
+    """
+    import tifffile
+
+    def _vol(value):
+        v = np.full((7, 7, 7), value, dtype=np.float32)
+        v[3, 3, 3] = value + 100.0  # centered peak so centering shifts are ~0
+        return v
+
+    results = [
+        {'id': 2, 'x_coord': 5.0, 'y_coord': 5.0, 'fwhm_z_prom': 1.0},
+        {'id': 3, 'x_coord': 10.0, 'y_coord': 10.0, 'fwhm_z_prom': 1.1},
+    ]
+    bead_volumes = [np.array([]), _vol(10.0), _vol(20.0)]
+    profiles = [
+        {'id': 2, 'volume': _vol(10.0), 'z_profile': None,
+         'x_profile': None, 'y_profile': None},
+        {'id': 3, 'volume': _vol(20.0), 'z_profile': None,
+         'x_profile': None, 'y_profile': None},
+    ]
+    mip = np.zeros((30, 30), dtype=np.float32)
+    out_path = tmp_path / "synthetic.tif"
+
+    write_outputs(
+        results, bead_volumes, mip, out_path, 'cellpose',
+        scale_xy=0.1, scale_z=0.5,
+        upsample_factor=1, num_beads_avg=20, profiles=profiles, stack=None,
+    )
+    avg = tifffile.imread(tmp_path / "synthetic_average_bead_stack.tif")
+    # Correct pairing: volumes for ids 2 and 3 -> background average (10+20)/2 = 15.
+    # Mis-paired (positional) selection picks volumes of the wrong ids instead.
+    assert np.isclose(float(avg[0, 0, 0]), 15.0, atol=2.0)

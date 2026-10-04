@@ -1429,11 +1429,22 @@ def write_outputs(results, bead_volumes, mip, file_path, mode, scale_xy, scale_z
             sel_ids = sel['id'].tolist()
         else:
             sel_ids = df['id'].tolist()
-        volume_by_id = {
-            int(r.get('id')): v
-            for r, v in zip(results, bead_volumes)
-            if v is not None and getattr(v, "size", 0) > 0
-        }
+        if profiles:
+            # Prefer profiles: they are keyed by result id even when bead_volumes
+            # contains empty placeholders for rejected beads (cellpose mode).
+            volume_by_id = {
+                int(p['id']): p.get('volume')
+                for p in profiles
+                if p.get('id') is not None
+                and p.get('volume') is not None
+                and getattr(p.get('volume'), "size", 0) > 0
+            }
+        else:
+            volume_by_id = {
+                int(r.get('id')): v
+                for r, v in zip(results, bead_volumes)
+                if v is not None and getattr(v, "size", 0) > 0
+            }
         sel_vols = [volume_by_id[sid] for sid in sel_ids if sid in volume_by_id]
         if sel_vols:
             valid_vols = sel_vols
