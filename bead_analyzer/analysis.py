@@ -1480,17 +1480,141 @@ def write_outputs(results, bead_volumes, mip, file_path, mode, scale_xy, scale_z
             print(f"WARNING: Summary figure could not be saved: {e}")
 
 
+def _shell_values(vol, width=2):
+    """Values in the outer ``width``-voxel layer of every face of a 3-D crop."""
+    width = max(1, min(int(width), min(vol.shape) // 4))
+    mask = np.zeros(vol.shape, dtype=bool)
+    for ax in range(vol.ndim):
+        lo = [slice(None)] * vol.ndim
+        hi = [slice(None)] * vol.ndim
+        lo[ax] = slice(0, width)
+        hi[ax] = slice(vol.shape[ax] - width, vol.shape[ax])
+        mask[tuple(lo)] = True
+        mask[tuple(hi)] = True
+    return vol[mask]
+
+
+def _crop_floor(vol):
+    """Flat floor of a bead crop (camera offset plus background).
+
+    The 10th percentile of the lightly smoothed outer shell: a low percentile rather
+    than the median, because the defocused light of a bead can reach the faces of the
+    crop, most of all at the top and bottom of the stack.
+    """
+    return float(np.percentile(_shell_values(gaussian_filter(vol, 1.0)), 10))
+
+
+def _place_on_canvas(vol, shape):
+    """Zero-pad ``vol`` evenly on both sides of every axis to ``shape``."""
+    pad = []
+    for n, m in zip(vol.shape, shape):
+        before = (int(m) - int(n)) // 2
+        pad.append((before, int(m) - int(n) - before))
+    return np.pad(vol, pad, mode='constant', constant_values=0.0)
+
+
+def _shift_to(vol, target, source):
+    """Translate ``vol`` so the point ``source`` lands on ``target`` (linear, zero fill)."""
+    return shift(vol, np.asarray(target, float) - np.asarray(source, float),
+                 order=1, mode='constant', cval=0.0)
+
+
+def _xcorr_offset(vol, ref):
+    """Integer offset (on this grid) that best aligns ``vol`` to ``ref``, by FFT cross-correlation."""
+    f = np.fft.rfftn(ref) * np.conj(np.fft.rfftn(vol))
+    cc = np.fft.irfftn(f, s=ref.shape, axes=tuple(range(ref.ndim)))
+    idx = np.array(np.unravel_index(int(np.argmax(cc)), cc.shape), dtype=float)
+    shape = np.array(ref.shape, dtype=float)
+    idx[idx > shape / 2] -= shape[idx > shape / 2]
+    return idx
+
+
+def _average_bead_volumes(volumes, upsample_factor=4, reject_mad=3.0):
+    """Average bead crops into one PSF estimate on a grid ``upsample_factor`` times finer.
+
+    Follows the order of Li et al. (2018, Nat Methods 15:367) for experimental PSFs:
+
+    1. remove each crop's flat floor (camera offset and background), so the average
+       carries no pedestal;
+    2. scale each bead to the same total light, so bright beads do not dominate;
+    3. up-sample, then place every bead on one canvas padded evenly on both sides,
+       so crops cut short at the image or stack edge stay centred;
+    4. align each bead's smoothed peak to the canvas centre;
+    5. re-align every bead to the average by cross-correlation and average again;
+    6. drop beads whose match to that average is far below the others'
+       (more than ``reject_mad`` robust deviations), keeping at least three.
+
+    Returns ``(average, info)``; the average is scaled back to the median bead's total
+    light, and ``info`` holds the counts used and rejected and the median floor removed.
+    """
+    beads, floors, totals = [], [], []
+    for vol in volumes:
+        v = np.asarray(vol, dtype=np.float64)
+        if v.ndim != 3 or min(v.shape) < 3:
+            continue
+        floor = _crop_floor(v) if min(v.shape) >= 5 else float(np.min(v))
+        v = v - floor
+        total = float(v.sum())
+        if not np.isfinite(total) or total <= 0:
+            continue
+        floors.append(floor)
+        totals.append(total)
+        beads.append(v / total)
+    if not beads:
+        raise ValueError("no usable bead volumes to average")
+
+    ups = [zoom(b, upsample_factor, order=3) for b in beads]
+    canvas = tuple(int(n) for n in np.max([u.shape for u in ups], axis=0))
+    center = (np.array(canvas) - 1) / 2.0
+    smooth_sigma = max(1.0, upsample_factor / 2.0)
+    aligned = []
+    for u in ups:
+        c = _place_on_canvas(u, canvas)
+        peak = np.unravel_index(int(np.argmax(gaussian_filter(c, smooth_sigma))), c.shape)
+        aligned.append(_shift_to(c, center, peak))
+
+    ref = np.mean(aligned, axis=0)
+    if len(aligned) > 1:
+        aligned = [_shift_to(a, _xcorr_offset(a, ref), (0.0, 0.0, 0.0)) for a in aligned]
+        ref = np.mean(aligned, axis=0)
+
+    keep = list(range(len(aligned)))
+    if len(aligned) > 3:
+        ref_c = ref - ref.mean()
+        scores = []
+        for a in aligned:
+            a_c = a - a.mean()
+            denom = float(np.sqrt((a_c ** 2).sum() * (ref_c ** 2).sum()))
+            scores.append(float((a_c * ref_c).sum()) / denom if denom > 0 else 0.0)
+        scores = np.asarray(scores)
+        med = float(np.median(scores))
+        mad = 1.4826 * float(np.median(np.abs(scores - med)))
+        if mad > 0:
+            cut = med - reject_mad * mad
+            keep = [i for i, s in enumerate(scores) if s >= cut]
+            if len(keep) < 3:
+                keep = list(np.argsort(scores)[::-1][:3])
+        if len(keep) < len(aligned):
+            ref = np.mean([aligned[i] for i in keep], axis=0)
+
+    avg = (ref * float(np.median(totals))).astype(np.float32)
+    info = {
+        'used': len(keep),
+        'rejected': len(aligned) - len(keep),
+        'skipped': len(volumes) - len(beads),
+        'median_floor': float(np.median(floors)),
+    }
+    return avg, info
+
+
 def _save_average_bead(volumes, file_path, scale_xy, scale_z, upsample_factor=4):
     """Save upsampled average bead stack and plot. Returns the average volume."""
-    centered = []
-    for vol in volumes:
-        up = zoom(vol, upsample_factor, order=3)
-        peak = np.unravel_index(np.argmax(up), up.shape)
-        center = (np.array(up.shape) - 1) / 2.0
-        centered.append(shift(up, center - peak, order=3, mode='constant', cval=0))
-    max_d = np.max([v.shape for v in centered], axis=0)
-    padded = [np.pad(v, [(0, max_d[i] - v.shape[i]) for i in range(3)], mode='constant', constant_values=0) for v in centered]
-    avg = np.mean(padded, axis=0).astype(np.float32)
+    avg, info = _average_bead_volumes(volumes, upsample_factor=upsample_factor)
+    print(
+        f"Average bead: {info['used']} beads averaged, {info['rejected']} set aside as "
+        f"unlike the others, {info['skipped']} unusable; median floor removed "
+        f"{info['median_floor']:.1f} counts per voxel."
+    )
     new_xy = scale_xy / upsample_factor
     new_z = scale_z / upsample_factor
     out_tif = file_path.with_name(f"{file_path.stem}_average_bead_stack.tif")

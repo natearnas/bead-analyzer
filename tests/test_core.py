@@ -419,20 +419,20 @@ def test_write_outputs_average_bead_id_alignment(tmp_path):
     """
     import tifffile
 
-    def _vol(value):
+    def _vol(value, bead):
         v = np.full((7, 7, 7), value, dtype=np.float32)
-        v[3, 3, 3] = value + 100.0  # centered peak so centering shifts are ~0
+        v[3, 3, 3] = value + bead  # centered peak so centering shifts are ~0
         return v
 
     results = [
         {'id': 2, 'x_coord': 5.0, 'y_coord': 5.0, 'fwhm_z_prom': 1.0},
         {'id': 3, 'x_coord': 10.0, 'y_coord': 10.0, 'fwhm_z_prom': 1.1},
     ]
-    bead_volumes = [np.array([]), _vol(10.0), _vol(20.0)]
+    bead_volumes = [np.array([]), _vol(10.0, 100.0), _vol(20.0, 300.0)]
     profiles = [
-        {'id': 2, 'volume': _vol(10.0), 'z_profile': None,
+        {'id': 2, 'volume': _vol(10.0, 100.0), 'z_profile': None,
          'x_profile': None, 'y_profile': None},
-        {'id': 3, 'volume': _vol(20.0), 'z_profile': None,
+        {'id': 3, 'volume': _vol(20.0, 300.0), 'z_profile': None,
          'x_profile': None, 'y_profile': None},
     ]
     mip = np.zeros((30, 30), dtype=np.float32)
@@ -444,9 +444,11 @@ def test_write_outputs_average_bead_id_alignment(tmp_path):
         upsample_factor=1, num_beads_avg=20, profiles=profiles, stack=None,
     )
     avg = tifffile.imread(tmp_path / "synthetic_average_bead_stack.tif")
-    # Correct pairing: volumes for ids 2 and 3 -> background average (10+20)/2 = 15.
-    # Mis-paired (positional) selection picks volumes of the wrong ids instead.
-    assert np.isclose(float(avg[0, 0, 0]), 15.0, atol=2.0)
+    # The average removes each crop's floor and is scaled to the median bead's total light.
+    # Correct pairing: beads of 100 and 300 above their floors -> peak = median = 200.
+    # Mis-paired (positional) selection keeps only the 100 bead -> peak 100.
+    assert np.isclose(float(avg.max()), 200.0, atol=20.0)
+    assert abs(float(avg[0, 0, 0])) < 1.0
 
 
 def test_cli_config_supplies_required_scale_args(tmp_path, monkeypatch, capsys):
