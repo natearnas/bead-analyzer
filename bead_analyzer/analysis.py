@@ -1513,20 +1513,36 @@ def _place_on_canvas(vol, shape):
     return np.pad(vol, pad, mode='constant', constant_values=0.0)
 
 
-def _shift_to(vol, target, source):
-    """Translate ``vol`` so the point ``source`` lands on ``target`` (linear, zero fill)."""
-    return shift(vol, np.asarray(target, float) - np.asarray(source, float),
-                 order=1, mode='constant', cval=0.0)
+def _shift_by(vol, offset):
+    """Translate ``vol`` by ``offset`` voxels (cubic spline, zero fill)."""
+    return shift(vol, np.asarray(offset, float), order=3, mode='constant', cval=0.0)
 
 
 def _xcorr_offset(vol, ref):
-    """Integer offset (on this grid) that best aligns ``vol`` to ``ref``, by FFT cross-correlation."""
+    """Sub-voxel offset (on this grid) that best aligns ``vol`` to ``ref``.
+
+    The peak of the FFT cross-correlation, refined on each axis by a three-point fit
+    through the peak and its two neighbours (Gaussian where all three are positive,
+    parabola otherwise).
+    """
     f = np.fft.rfftn(ref) * np.conj(np.fft.rfftn(vol))
     cc = np.fft.irfftn(f, s=ref.shape, axes=tuple(range(ref.ndim)))
-    idx = np.array(np.unravel_index(int(np.argmax(cc)), cc.shape), dtype=float)
-    shape = np.array(ref.shape, dtype=float)
-    idx[idx > shape / 2] -= shape[idx > shape / 2]
-    return idx
+    peak = np.unravel_index(int(np.argmax(cc)), cc.shape)
+    offset = np.array(peak, dtype=float)
+    for ax, n in enumerate(cc.shape):
+        lo = list(peak)
+        hi = list(peak)
+        lo[ax] = (peak[ax] - 1) % n
+        hi[ax] = (peak[ax] + 1) % n
+        c_lo, c_0, c_hi = float(cc[tuple(lo)]), float(cc[peak]), float(cc[tuple(hi)])
+        if min(c_lo, c_0, c_hi) > 0:
+            c_lo, c_0, c_hi = np.log(c_lo), np.log(c_0), np.log(c_hi)
+        curve = c_lo - 2.0 * c_0 + c_hi
+        if curve < 0:
+            offset[ax] += float(np.clip(0.5 * (c_lo - c_hi) / curve, -0.5, 0.5))
+        if offset[ax] > n / 2.0:
+            offset[ax] -= n
+    return offset
 
 
 def _average_bead_volumes(volumes, upsample_factor=4, reject_mad=3.0):
@@ -1540,9 +1556,11 @@ def _average_bead_volumes(volumes, upsample_factor=4, reject_mad=3.0):
     3. up-sample, then place every bead on one canvas padded evenly on both sides,
        so crops cut short at the image or stack edge stay centred;
     4. align each bead's smoothed peak to the canvas centre;
-    5. re-align every bead to the average by cross-correlation and average again;
-    6. drop beads whose match to that average is far below the others'
-       (more than ``reject_mad`` robust deviations), keeping at least three.
+    5. re-align every bead to the average by cross-correlation, to a fraction of a
+       voxel, and average again (two rounds);
+    6. drop beads whose mismatch to that average is far above what their brightness
+       predicts (more than ``reject_mad`` robust deviations on a log scale), keeping at
+       least three. Dim beads are noisier, not different, and stay in.
 
     Returns ``(average, info)``; the average is scaled back to the median bead's total
     light, and ``info`` holds the counts used and rejected and the median floor removed.
@@ -1563,20 +1581,31 @@ def _average_bead_volumes(volumes, upsample_factor=4, reject_mad=3.0):
     if not beads:
         raise ValueError("no usable bead volumes to average")
 
-    ups = [zoom(b, upsample_factor, order=3) for b in beads]
+    # grid_mode: one input voxel becomes exactly ``upsample_factor`` output voxels, so the
+    # saved voxel size (input size / upsample_factor) is true. The default mapping
+    # stretches n voxels over n*factor - 1 intervals instead, which made the average
+    # read (n*factor - 1) / (n*factor - factor) too wide: 3.8 % for a 21-voxel crop at 4x.
+    ups = [zoom(b, upsample_factor, order=3, mode='nearest', grid_mode=True) for b in beads]
     canvas = tuple(int(n) for n in np.max([u.shape for u in ups], axis=0))
     center = (np.array(canvas) - 1) / 2.0
     smooth_sigma = max(1.0, upsample_factor / 2.0)
-    aligned = []
+    placed, offsets = [], []
     for u in ups:
         c = _place_on_canvas(u, canvas)
         peak = np.unravel_index(int(np.argmax(gaussian_filter(c, smooth_sigma))), c.shape)
-        aligned.append(_shift_to(c, center, peak))
+        placed.append(c)
+        offsets.append(center - np.asarray(peak, dtype=float))
+    aligned = [_shift_by(c, o) for c, o in zip(placed, offsets)]
 
+    # Two rounds against the running average. Each round adds its sub-voxel correction to
+    # the bead's total offset and re-shifts the unshifted crop, so every bead is
+    # interpolated once however many rounds run.
     ref = np.mean(aligned, axis=0)
     if len(aligned) > 1:
-        aligned = [_shift_to(a, _xcorr_offset(a, ref), (0.0, 0.0, 0.0)) for a in aligned]
-        ref = np.mean(aligned, axis=0)
+        for _ in range(2):
+            offsets = [o + _xcorr_offset(a, ref) for o, a in zip(offsets, aligned)]
+            aligned = [_shift_by(c, o) for c, o in zip(placed, offsets)]
+            ref = np.mean(aligned, axis=0)
 
     keep = list(range(len(aligned)))
     if len(aligned) > 3:
@@ -1587,13 +1616,30 @@ def _average_bead_volumes(volumes, upsample_factor=4, reject_mad=3.0):
             denom = float(np.sqrt((a_c ** 2).sum() * (ref_c ** 2).sum()))
             scores.append(float((a_c * ref_c).sum()) / denom if denom > 0 else 0.0)
         scores = np.asarray(scores)
-        med = float(np.median(scores))
-        mad = 1.4826 * float(np.median(np.abs(scores - med)))
-        if mad > 0:
-            cut = med - reject_mad * mad
-            keep = [i for i, s in enumerate(scores) if s >= cut]
-            if len(keep) < 3:
-                keep = list(np.argsort(scores)[::-1][:3])
+        # Judge the mismatch (1 - correlation) on a log scale, after taking out what
+        # brightness alone explains. A dim bead is noisier than a bright one, so its
+        # mismatch is larger without its shape being any different: by 1/light where
+        # photon noise dominates, by 1/light^2 where camera noise does. The trend against
+        # log(total light) is a robust line (median of pairwise slopes, held between
+        # -2 and 0); a bead is dropped only when it sits far above that line.
+        # Mismatches under 1e-4 count as equal, and the spread is never taken below 0.25,
+        # so a bead must be at least about twice as far from the average as its
+        # brightness predicts.
+        mismatch = np.log(np.maximum(1.0 - scores, 1e-4))
+        light = np.log(np.asarray(totals, dtype=float))
+        first, second = np.triu_indices(len(light), 1)
+        d_light = light[second] - light[first]
+        usable = np.abs(d_light) > 1e-6
+        slope = 0.0
+        if usable.any():
+            slope = float(np.clip(np.median((mismatch[second] - mismatch[first])[usable] / d_light[usable]),
+                                  -2.0, 0.0))
+        excess = mismatch - slope * light
+        med = float(np.median(excess))
+        spread = max(1.4826 * float(np.median(np.abs(excess - med))), 0.25)
+        keep = [i for i, m in enumerate(excess) if m <= med + reject_mad * spread]
+        if len(keep) < 3:
+            keep = list(np.argsort(scores)[::-1][:3])
         if len(keep) < len(aligned):
             ref = np.mean([aligned[i] for i in keep], axis=0)
 

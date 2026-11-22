@@ -5,6 +5,7 @@ different brightness and some crops cut short at the image edge.
 """
 
 import numpy as np
+from scipy.optimize import curve_fit
 
 from bead_analyzer.analysis import _average_bead_volumes
 
@@ -39,6 +40,18 @@ def _fwhm_px(profile):
     return right - left
 
 
+def _fit_sigma_px(profile):
+    """Sigma of a least-squares Gaussian fit to a 1-D profile, in samples."""
+    p = np.asarray(profile, float)
+    x = np.arange(p.size, dtype=float)
+
+    def model(x, amp, mu, sigma, base):
+        return amp * np.exp(-((x - mu) ** 2) / (2 * sigma ** 2)) + base
+
+    popt, _ = curve_fit(model, x, p, p0=[p.max(), float(np.argmax(p)), _fwhm_px(p) / 2.3548, 0.0])
+    return abs(popt[2])
+
+
 def test_pedestal_is_removed_and_width_is_kept():
     rng = np.random.default_rng(0)
     up = 4
@@ -50,7 +63,25 @@ def test_pedestal_is_removed_and_width_is_kept():
     assert abs(edge) < 0.01 * peak, "average still carries a pedestal"
     zc, yc, xc = np.unravel_index(int(np.argmax(avg)), avg.shape)
     true_fwhm_x = 2.3548 * SIGMA[2] * up
-    assert abs(_fwhm_px(avg[zc, yc, :]) - true_fwhm_x) < 0.12 * true_fwhm_x
+    assert abs(_fwhm_px(avg[zc, yc, :]) - true_fwhm_x) < 0.04 * true_fwhm_x
+
+
+def test_upsampled_grid_has_the_stated_voxel_size():
+    """One input voxel is exactly ``upsample_factor`` output voxels, on every axis.
+
+    Widths measured on the average, divided by the factor, must match the beads' true
+    widths; a grid stretched over n*factor - 1 intervals reads about 4 % wide here.
+    """
+    rng = np.random.default_rng(6)
+    vols = [_bead(rng, 2000.0, np.array([10.0, 10.0, 10.0]) + rng.uniform(-0.5, 0.5, 3), noise=0.0)
+            for _ in range(10)]
+    for up in (1, 2, 4):
+        avg, _ = _average_bead_volumes(vols, upsample_factor=up)
+        assert avg.shape == tuple(up * n for n in SHAPE)
+        zc, yc, xc = np.unravel_index(int(np.argmax(avg)), avg.shape)
+        for profile, sigma in ((avg[:, yc, xc], SIGMA[0]), (avg[zc, :, xc], SIGMA[1]),
+                               (avg[zc, yc, :], SIGMA[2])):
+            assert abs(_fit_sigma_px(profile) / up / sigma - 1.0) < 0.01
 
 
 def test_peak_sits_at_the_canvas_centre_even_with_edge_cut_crops():
@@ -66,7 +97,7 @@ def test_peak_sits_at_the_canvas_centre_even_with_edge_cut_crops():
     zc = int(round(center[0]))
     yc = int(round(center[1]))
     true_fwhm_x = 2.3548 * SIGMA[2] * 4
-    assert abs(_fwhm_px(avg[zc, yc, :]) - true_fwhm_x) < 0.15 * true_fwhm_x
+    assert abs(_fwhm_px(avg[zc, yc, :]) - true_fwhm_x) < 0.05 * true_fwhm_x
 
 
 def test_an_odd_bead_is_set_aside():
@@ -77,6 +108,19 @@ def test_an_odd_bead_is_set_aside():
     avg, info = _average_bead_volumes(vols + [clump], upsample_factor=2)
     assert info["rejected"] >= 1
     assert info["used"] >= 3
+
+
+def test_dim_beads_are_not_set_aside_for_being_noisy():
+    """A dim bead matches the average less well only because it is noisier."""
+    rng = np.random.default_rng(7)
+    amplitudes = [300.0, 350.0, 400.0, 500.0] + [3000.0] * 8
+    vols = [_bead(rng, a, np.array([10.0, 10.0, 10.0]) + rng.uniform(-0.5, 0.5, 3)) for a in amplitudes]
+    _, info = _average_bead_volumes(vols, upsample_factor=2)
+    assert info["rejected"] == 0
+    # The same set with one clump still loses the clump.
+    clump = _bead(rng, 2000, (10.0, 10.0, 7.0)) + _bead(rng, 2000, (10.0, 10.0, 13.0)) - OFFSET
+    _, info = _average_bead_volumes(vols + [clump], upsample_factor=2)
+    assert info["rejected"] == 1
 
 
 def test_bright_beads_do_not_dominate():
