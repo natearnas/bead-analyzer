@@ -4,6 +4,28 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [Unreleased]
+
+### Added
+- **Light-sheet report** (`--lightsheet`): sheet thickness from the box-integrated Z profile of each bead, as FWHM and 1/e^2 width with a 95% interval. Includes a bead-size correction (`--bead_diameter`), a continuous-scan correction (`--scan_mode`), and automatic enlargement of the box when the optics say it would clip the defocused bead image.
+- Shared-width fit across beads for coarse Z sampling: below 2 slices per FWHM the thickness comes from one fit over all beads instead of single-bead fits.
+- Thickness across the field: Gaussian-beam fit along the propagation axis (`--sheet_axis`) giving waist thickness, waist position and Rayleigh range with bootstrap intervals, and an explicit "uniform" or "waist outside the field" outcome when the data do not support a waist. With the waist outside the field the report gives the rate of change and the position the thickness extrapolates to.
+- Optics check with `--na`, `--emission_nm`, `--ri` and `--excitation_nm`: lateral FWHM against the diffraction limit, on-axis axial FWHM against sheet and detection combined, Rayleigh range against an ideal Gaussian beam.
+- Per-bead focus offset: the Z position of sharpest focus relative to the sheet center, to show a sheet that is not in the detection focal plane.
+- `--export_psf`: measured PSF at the native voxel size (sub-voxel registered, centered, non-negative, unit sum) with a JSON description.
+- `bead_analyzer.synthetic`: simulated bead stacks (pupil-model detection PSF, focused Gaussian sheet, finite beads, camera noise) with ground truth; `python -m bead_analyzer.synthetic` writes an example stack.
+- `fit_gaussian_fwhm` also returns the fitted center, a standard error for the FWHM, amplitude, offset and RMSE.
+
+### Changed (measurement-affecting)
+- **The average bead (`*_average_bead_stack.tif`) changes.** Widths read from older files are too large, and the files carry a pedestal.
+  - **Voxel size.** The up-sampling stretched `n` voxels over `n * factor - 1` intervals, but the file was written with a voxel size of `scale / factor`. Widths read from the file were too large by `(n * factor - 1) / (n * factor - factor)`: 3.8% for a 21-voxel crop and 5.4% for a 15-voxel crop at the default factor of 4. One input voxel is now exactly `factor` output voxels.
+  - **Background.** Crops were averaged with the camera offset and background left in, so the average sat on a pedestal (4-5% of the peak on simulated beads). Each crop's floor (10th percentile of its smoothed outer shell) is now removed before averaging.
+  - **Brightness.** Beads were averaged as they were, so the brightest dominated. Each bead is now scaled to the same total light; the average is scaled back to the median bead's.
+  - **Alignment.** Beads were aligned on the brightest voxel. They are now aligned to the average by cross-correlation, to a fraction of a voxel, in two rounds. Crops cut short at the image or stack edge were padded on one side only and came out off-center; padding is now even.
+  - **Odd beads.** A bead whose mismatch to the average is far above what its brightness predicts (a clump, a bead at an edge) is set aside; the run prints how many. Dim beads are noisier, not different, and stay in.
+  - On simulated beads the width of the average was 9-12% above the true width before and is within 0.5% now. The per-bead FWHM values in the tables are not affected.
+- `--export_psf` takes the background as the 10th percentile of each crop's smoothed outer shell, as the average bead does. The median of the lateral border counted the defocused light of a widefield bead as background (about 8% of its light at a 15-pixel box).
+
 ## [1.2.3] - 2026-10-04
 
 ### Changed (measurement-affecting)

@@ -338,6 +338,26 @@ def test_fit_gaussian_fwhm_wide_profile():
     assert np.isclose(result['fwhm_um'], fwhm_expected, rtol=0.01)
 
 
+def test_fit_gaussian_fwhm_reports_center_and_uncertainty():
+    """The fit returns the sub-sample center and a standard error that matches the real scatter."""
+    rng = np.random.default_rng(1)
+    x = np.arange(41)
+    fwhm_expected = 4.0
+    sigma = fwhm_expected / (2 * np.sqrt(2 * np.log(2)))
+    fwhms, errors, center_err = [], [], []
+    for _ in range(200):
+        mu = 20 + rng.uniform(-0.5, 0.5)
+        y = gaussian_func(x, 1000.0, mu, sigma, 100.0) + rng.normal(0, 50.0, x.size)
+        result = fit_gaussian_fwhm(y, scale_factor=0.5, peak_hint=int(np.argmax(y)))
+        fwhms.append(result['fwhm_um'])
+        errors.append(result['fwhm_se_um'])
+        center_err.append(result['center_px'] - mu)
+        assert np.isclose(result['fwhm_px'] * 0.5, result['fwhm_um'])
+    assert np.isclose(np.mean(fwhms), fwhm_expected * 0.5, rtol=0.02)
+    assert 0.7 < np.mean(errors) / np.std(fwhms) < 1.4
+    assert np.std(center_err) < 0.15
+
+
 def test_fit_gaussian_fwhm_robust_count_scale_narrow_peak():
     """Robust fit converges on count-scale data for narrow peaks.
 

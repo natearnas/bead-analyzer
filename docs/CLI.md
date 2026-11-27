@@ -34,7 +34,7 @@ Or: `python -m bead_analyzer.cli INPUT.tif ...`
 | `--output_dir` | (input dir) | Output directory |
 | `--no_plots` | False | Suppress plots |
 | `--upsample_factor` | 4 | Upsampling for average bead |
-| `--na` | - | Numerical aperture (metadata) |
+| `--na` | - | Detection numerical aperture (recorded; used numerically by `--lightsheet`) |
 | `--fluorophore` | - | Fluorophore name (metadata) |
 | `--prominence_rel` | 0.1 | Relative prominence (fraction of signal range) |
 | `--prominence_min` | - | Absolute prominence threshold (overrides relative) |
@@ -61,6 +61,38 @@ Or: `python -m bead_analyzer.cli INPUT.tif ...`
 | `--robust_fit` | False | Robust Gaussian fitting (soft-L1 / Huber-like loss) |
 | `--num_beads_avg` | 20 | Beads for average (nearest to median Z-FWHM; minimum 1) |
 | `--sample_fraction` | 100 | Analyze this % of detected beads (1-100); random uniform sample; CSV/diagnostics only include analyzed beads |
+
+## Light-Sheet Report And PSF Export
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `--lightsheet` | off | Write the light-sheet report: sheet thickness per bead, pooled, and across the field |
+| `--na` | None | Detection numerical aperture; with `--emission_nm` enables the box-size and theory checks |
+| `--emission_nm` | None | Emission wavelength (nm) |
+| `--excitation_nm` | None | Excitation wavelength (nm); compares a fitted Rayleigh range with an ideal Gaussian beam |
+| `--ri` | 1.0 | Refractive index of the immersion/sample medium |
+| `--bead_diameter` | None | Bead diameter (µm); removed from the sheet thickness in quadrature |
+| `--sheet_axis` | auto | Image axis along which the sheet propagates: `x`, `y` or `auto` |
+| `--scan_mode` | step | `step` (stage at rest during exposure) or `continuous` (stage moved one Z step per exposure) |
+| `--export_psf` | off | Write `*_psf.tif` / `*_psf.json`: averaged bead at native voxel size, centered, unit sum |
+
+The report works from the raw stack and the beads accepted by the main analysis, so detection and QA options apply to it too. Outputs: `*_lightsheet_summary.txt`, `*_lightsheet_beads.csv`, `*_lightsheet_report.json` and, unless `--no_plots`, `*_lightsheet_report.png`.
+
+Columns of `*_lightsheet_beads.csv` (one row per bead):
+
+| Column | Meaning |
+|--------|---------|
+| `id`, `x_um`, `y_um`, `z_um` | Bead id from the main analysis and its position; `z_um` is the sub-slice center of the box-integrated profile |
+| `fwhm_z_box_um`, `fwhm_z_box_se_um` | Gaussian FWHM of the box-integrated Z profile and its standard error |
+| `samples_per_fwhm` | Z slices per FWHM of that profile |
+| `sheet_fwhm_um`, `sheet_fwhm_se_um` | Sheet thickness at the bead: the box-profile FWHM with bead size and scan motion removed |
+| `sheet_width_1e2_um` | The same as a 1/e^2 full width (1.70 x FWHM) |
+| `fwhm_z_onaxis_um`, `fwhm_z_onaxis_se_um` | FWHM of the Z profile through the bead center only: the system's on-axis axial resolution |
+| `focus_offset_um` | Z of sharpest focus (on-axis peak) minus Z of the sheet center (box-profile peak) |
+| `profile_misfit` | RMS residual of the Gaussian fit to the box profile, as a fraction of its amplitude |
+| `sampling` | `ok` (3 or more slices per FWHM), `coarse` (2 to 3), `undersampled` (below 2) or `fit_failed` |
+| `saturated`, `truncated`, `crowded` | Reasons a bead is set aside: a saturated pixel, a profile cut off by the stack, a neighbor inside the box at a similar depth |
+| `used` | Whether the bead entered the per-bead statistics and the field fit |
 
 ## Mode-Specific Options
 
@@ -157,6 +189,11 @@ bead-analyzer beads.tif --mode cellpose --scale_xy 0.51 --scale_z 1.0 \
 # Robust fitting with local background (recommended for light-sheet with OOF haze)
 bead-analyzer beads.tif --mode stardist --scale_xy 0.51 --scale_z 1.0 \
   --fit_gaussian --robust_fit --local_background
+
+# Light-sheet report with optics check and a measured PSF for deconvolution
+bead-analyzer beads.tif --scale_xy 0.51 --scale_z 1.0 --fit_gaussian \
+  --lightsheet --na 0.14 --emission_nm 525 --excitation_nm 488 --ri 1.0 \
+  --bead_diameter 0.5 --sheet_axis x --export_psf
 
 # Large annular beads: ring-friendly centering
 bead-analyzer beads.tif --mode trackpy --scale_xy 0.0645 --scale_z 0.16 \

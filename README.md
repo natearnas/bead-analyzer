@@ -120,6 +120,8 @@ For bead-center localization, some labs report strong results with keypoint/heat
 - `*_rejected_beads.csv` -- beads filtered by QA (if `--qa_auto_reject`)
 - `bead_diagnostics/` -- per-bead diagnostic plots with fit overlays on all axes (if `--save_diagnostics`)
 - (Cellpose) `*_every_bead_log.csv`
+- `*_lightsheet_summary.txt`, `*_lightsheet_beads.csv`, `*_lightsheet_report.json`, `*_lightsheet_report.png` -- light-sheet report (if `--lightsheet`)
+- `*_psf.tif`, `*_psf.json` -- measured PSF at the native voxel size, ready for deconvolution (if `--export_psf`)
 
 ## How The Measurement Works
 
@@ -206,6 +208,50 @@ Use `--save_diagnostics` to write a PNG per bead to `bead_diagnostics/` showing:
 
 This is invaluable for verifying that the pipeline is measuring what you expect.
 
+## Light-Sheet Report
+
+`--lightsheet` adds a report on the illumination sheet, measured from the same beads:
+
+```bash
+bead-analyzer beads.tif --scale_xy 0.51 --scale_z 1.0 --fit_gaussian \
+  --lightsheet --na 0.14 --emission_nm 525 --ri 1.0 --bead_diameter 0.5 --sheet_axis x
+```
+
+It reports:
+
+- **Sheet thickness** as the FWHM of an equivalent Gaussian sheet, with a 95% interval, and as a 1/e^2 full width (1.70 x FWHM).
+- **Thickness across the field**: a Gaussian-beam fit along the propagation axis gives the waist thickness, waist position and Rayleigh range. When the data do not support a waist, the report says the sheet is uniform instead, or that the thickness changes but the waist lies outside the field; it then gives the rate of change and, when the beads sit in the diverging part of the beam, where the thickness extrapolates to a focus.
+- **An optics check** (with `--na` and `--emission_nm`): measured lateral FWHM against the diffraction limit, and the on-axis axial FWHM against what the measured sheet and the detection objective predict together.
+- **Focus offset**: where each bead is sharpest relative to where it is brightest. A consistent offset means the sheet is not centered on the detection focal plane.
+
+How it works, and what to give it:
+
+| Topic | What the report does |
+|-------|----------------------|
+| **Statistic** | The Z profile of each bead is summed over an XY box. With camera detection, defocus spreads light without removing it, so this profile follows the sheet alone. A box that clips the defocused image reads thin, so give `--na` and `--emission_nm`: the box is then checked and enlarged automatically when needed. In a dense sample, where the larger box would take in neighboring beads, the original box is kept and the report states that the thickness is a lower bound. |
+| **Bead size** | `--bead_diameter` (um) removes the bead's own extent (0.527 x diameter, in quadrature). Keep beads smaller than the sheet thickness. |
+| **Z sampling** | Single-bead values are used from 2 slices per FWHM and trusted from 3. Below 2, one fit with a width shared by all beads is used instead; because beads sit at random sub-slice positions, it recovered the thickness in simulations down to about one slice per FWHM with a hundred or more beads. A Z step of a third of the sheet thickness or finer is still the better acquisition. |
+| **Scan mode** | `--scan_mode continuous` if the stage moved through one Z step during each exposure; the default assumes it was at rest. |
+| **Propagation axis** | `--sheet_axis x` or `y`. With `auto` the axis that shows a waist is chosen and labeled as a suggestion. |
+
+Limits to keep in mind:
+
+- The result is the thickness as seen by these beads. It includes any blur along Z from aberration or scattering in the bead sample, and a bead slide does not tell you what a thick specimen does to the sheet.
+- The box statistic needs camera detection of the whole defocused bead. With confocal-slit or rolling-shutter detection (for example axially swept systems), defocused light is rejected and the profile reads thinner than the sheet.
+- Sheets with strong side lobes (Bessel, lattice) or a flat top are not Gaussian; the reported number is then the width of the best-fitting Gaussian, and the report notes the misfit.
+- Use a sparse bead sample. The wider the sheet and the higher the detection NA, the larger the box each bead needs to itself.
+- Z must be the real displacement in the sample. If the stage moves at an angle to the detection axis, deskew the stack first.
+
+`--export_psf` writes the average of isolated beads as `*_psf.tif`: native voxel size, background removed, beads registered to sub-voxel precision (to the nearest slice in Z when Z sampling is below 2 slices per FWHM), odd dimensions with the peak on the central voxel, no negative values, unit sum. `*_psf.json` records the voxel size, bead count and FWHM.
+
+To try the report on data with a known answer, simulate a stack:
+
+```bash
+python -m bead_analyzer.synthetic beads.tif --sheet_fwhm 5 --rayleigh 60 --n_beads 150
+```
+
+The command prints the matching `bead-analyzer` call and writes the true bead positions and local sheet thickness to `beads_truth.csv`.
+
 ## Recommended Options By Use Case
 
 ### Small sub-resolution beads (PSF-like spots)
@@ -247,6 +293,7 @@ bead-analyzer beads.tif --mode trackpy --scale_xy 0.51 --scale_z 1.0 \
   --fit_gaussian --fit_3d --robust_fit --local_background \
   --qa_auto_reject --save_diagnostics
 ```
+Add `--lightsheet --na 0.14 --emission_nm 525` for the sheet thickness and its variation across the field (see [Light-Sheet Report](#light-sheet-report)).
 
 ### Keep StarDist primary but allow classical fallback
 ```bash

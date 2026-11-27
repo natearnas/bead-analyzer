@@ -29,6 +29,36 @@ def get_cellpose_model_path(cli_path=None, env_var='FWHM_CELLPOSE_MODEL'):
     return os.environ.get(env_var)
 
 
+def _write_optics_outputs(args, stack, results, output_path):
+    """Light-sheet report and PSF export; both work from the raw stack and the accepted beads."""
+    from . import lightsheet, psf_export
+
+    bead_table = None
+    if args.lightsheet:
+        try:
+            report = lightsheet.analyze(
+                stack, results, args.scale_xy, args.scale_z, box_size=args.box_size,
+                na=args.na, emission_nm=args.emission_nm, excitation_nm=args.excitation_nm, ri=args.ri,
+                bead_diameter_um=args.bead_diameter, sheet_axis=args.sheet_axis, scan_mode=args.scan_mode,
+                source=output_path,
+            )
+            lightsheet.write_outputs(report, output_path, no_plots=args.no_plots)
+            print("\n" + lightsheet.format_summary(report))
+            if report['summary'].get('box_px_used') == args.box_size:
+                bead_table = report['beads']
+        except Exception as e:
+            print(f"WARNING: Light-sheet report could not be written: {e}")
+    if args.export_psf:
+        try:
+            paths = psf_export.export_psf(stack, results, args.scale_xy, args.scale_z, args.box_size,
+                                          output_path, bead_table=bead_table if bead_table is not None
+                                          and len(bead_table) else None)
+            if paths:
+                print(f"PSF written to {paths['psf']}")
+        except Exception as e:
+            print(f"WARNING: PSF could not be exported: {e}")
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="Bead Analyzer: Analyze microsphere images for characterizing light microscopy systems.",
@@ -65,8 +95,26 @@ def main():
     parser.add_argument("--vmax_pct", type=float, default=None)
     parser.add_argument("--no_plots", action="store_true")
     parser.add_argument("--upsample_factor", type=int, default=4)
-    parser.add_argument("--na", type=float, default=None, help="Numerical aperture")
+    parser.add_argument("--na", type=float, default=None,
+                        help="Detection numerical aperture (recorded; used by --lightsheet)")
     parser.add_argument("--fluorophore", type=str, default=None, help="Fluorophore name(s)")
+    parser.add_argument("--lightsheet", action="store_true",
+                        help="Write a light-sheet report: sheet thickness per bead and across the field")
+    parser.add_argument("--emission_nm", type=float, default=None,
+                        help="Emission wavelength in nm (light-sheet optics check)")
+    parser.add_argument("--excitation_nm", type=float, default=None,
+                        help="Excitation wavelength in nm (compares a fitted Rayleigh range with an ideal beam)")
+    parser.add_argument("--ri", type=float, default=None,
+                        help="Refractive index of the immersion/sample medium (default 1.0)")
+    parser.add_argument("--bead_diameter", type=float, default=None,
+                        help="Bead diameter in µm; removes the bead's own size from the sheet thickness")
+    parser.add_argument("--sheet_axis", type=str, default="auto", choices=["auto", "x", "y"],
+                        help="Image axis along which the light sheet propagates (default: auto)")
+    parser.add_argument("--scan_mode", type=str, default="step", choices=["step", "continuous"],
+                        help="step: stage at rest during each exposure (default); "
+                             "continuous: stage moved through one Z step per exposure")
+    parser.add_argument("--export_psf", action="store_true",
+                        help="Write a deconvolution-ready PSF (native voxel size, centered, unit sum)")
     parser.add_argument("--prominence_min", type=float, default=None,
                         help="Absolute prominence threshold (overrides relative if set)")
     parser.add_argument("--prominence_rel", type=float, default=0.1,
@@ -294,6 +342,8 @@ def main():
         center_mode=args.center_mode,
         run_settings=run_settings,
     )
+    if args.lightsheet or args.export_psf:
+        _write_optics_outputs(args, stack, results, output_path)
     print("\nAnalysis complete.")
     return 0
 

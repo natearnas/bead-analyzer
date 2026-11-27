@@ -69,6 +69,14 @@ bead-analyzer beads.tif --mode cellpose --scale_xy 0.51 --scale_z 1.0 \
 bead-analyzer beads.tif --mode stardist --scale_xy 0.51 --scale_z 1.0 \
   --fit_gaussian --robust_fit --local_background
 
+## Light-sheet report: sheet thickness, waist fit across the field, optics check, PSF export
+bead-analyzer beads.tif --scale_xy 0.51 --scale_z 1.0 --fit_gaussian \
+  --lightsheet --na 0.14 --emission_nm 525 --excitation_nm 488 --ri 1.0 \
+  --bead_diameter 0.5 --sheet_axis x --export_psf
+
+## Simulated light-sheet bead stack with a known sheet (writes beads_truth.csv)
+python -m bead_analyzer.synthetic beads.tif --sheet_fwhm 5 --rayleigh 60 --n_beads 150
+
 ## Full hardened pipeline: 3D robust fit, local BG, QA rejection, diagnostics
 bead-analyzer beads.tif --mode stardist --scale_xy 0.51 --scale_z 1.0 \
   --fit_gaussian --fit_3d --robust_fit --local_background \

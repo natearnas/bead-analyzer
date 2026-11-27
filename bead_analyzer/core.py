@@ -372,7 +372,9 @@ def fit_gaussian_fwhm(profile, scale_factor=1.0, window_size=20, peak_hint=None,
     Returns
     -------
     dict or None
-        Dictionary with fwhm_um, or None if fitting failed.
+        Dictionary with fwhm_um, plus fwhm_px, fwhm_se_um (1-sigma, from the
+        fit covariance), center_px (sub-sample peak position), amplitude,
+        offset and rmse; or None if fitting failed.
     """
     if profile is None or len(profile) < 4:
         return None
@@ -398,7 +400,7 @@ def fit_gaussian_fwhm(profile, scale_factor=1.0, window_size=20, peak_hint=None,
             # f_scale sets the residual size treated as an inlier. Its default of
             # 1.0 is in data units, so on count-scale data every residual looked
             # like an outlier and the fit often failed to converge.
-            popt, _ = curve_fit(
+            popt, pcov = curve_fit(
                 gaussian_func, xs, ys, p0=p0,
                 bounds=(bounds_lo, bounds_hi),
                 method='trf', loss='soft_l1', f_scale=0.1 * A_init, maxfev=5000,
@@ -406,7 +408,7 @@ def fit_gaussian_fwhm(profile, scale_factor=1.0, window_size=20, peak_hint=None,
         else:
             bounds_lo = [0.0, float(xs[0]), 0.3, float(ys.min()) - 0.5 * A_init]
             bounds_hi = [A_init * 5.0, float(xs[-1]), float(len(profile)), float(ys.max())]
-            popt, _ = curve_fit(
+            popt, pcov = curve_fit(
                 gaussian_func, xs, ys, p0=p0,
                 bounds=(bounds_lo, bounds_hi),
                 maxfev=5000,
@@ -415,9 +417,21 @@ def fit_gaussian_fwhm(profile, scale_factor=1.0, window_size=20, peak_hint=None,
         sigma_fit = abs(popt[2])
         if sigma_fit < 0.25 or not np.isfinite(sigma_fit):
             return None
-        fwhm_px = 2 * np.sqrt(2 * np.log(2)) * sigma_fit
+        factor = 2 * np.sqrt(2 * np.log(2))
+        fwhm_px = factor * sigma_fit
         fwhm_um = fwhm_px * scale_factor
-        return {'fwhm_um': fwhm_um}
+        sigma_var = pcov[2, 2] if np.all(np.isfinite(pcov)) else np.nan
+        sigma_se = float(np.sqrt(sigma_var)) if sigma_var >= 0 else float('nan')
+        residuals = ys - gaussian_func(xs, *popt)
+        return {
+            'fwhm_um': fwhm_um,
+            'fwhm_px': fwhm_px,
+            'fwhm_se_um': factor * sigma_se * scale_factor,
+            'center_px': float(popt[1]),
+            'amplitude': float(popt[0]),
+            'offset': float(popt[3]),
+            'rmse': float(np.sqrt(np.mean(residuals ** 2))),
+        }
     except Exception:
         return None
 
